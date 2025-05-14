@@ -1,0 +1,436 @@
+BÁO CÁO DỰ ÁN NHẬP MÔN CÔNG NGHỆ PHẦN MỀM
+===========================================
+
+**Tên dự án:** Hệ Thống Điểm Danh Bằng Khuôn Mặt (FaceReg)
+
+**Môn học:** Nhập môn Công nghệ Phần mềm
+
+**Sinh viên thực hiện:** [Điền tên sinh viên]
+
+**Mã số sinh viên:** [Điền mã số sinh viên]
+
+**Giáo viên hướng dẫn:** [Điền tên giáo viên hướng dẫn]
+
+**Ngày nộp:** [Điền ngày nộp]
+
+**Mục lục**
+---------
+1. Giới thiệu dự án
+2. Phân tích yêu cầu
+   2.1. Use Cases (Trường hợp sử dụng)
+       2.1.1. Admin
+       2.1.2. Giáo viên
+       2.1.3. Sinh viên
+   2.2. Yêu cầu chức năng
+   2.3. Yêu cầu phi chức năng
+3. Thiết kế hệ thống
+   3.1. Kiến trúc hệ thống
+   3.2. Thiết kế cơ sở dữ liệu
+   3.3. Thiết kế giao diện người dùng (Sơ bộ)
+   3.4. Thiết kế các thành phần chính
+4. Công nghệ sử dụng
+5. Cài đặt và triển khai
+   5.1. Hướng dẫn cài đặt
+   5.2. Hướng dẫn sử dụng
+6. Kết luận và hướng phát triển
+7. Tài liệu tham khảo
+
+**Nội dung chi tiết**
+-------------------
+
+**1. Giới thiệu dự án**
+
+FaceReg là một hệ thống điểm danh thông minh, được xây dựng nhằm mục đích hiện đại hóa quy trình điểm danh truyền thống trong môi trường giáo dục, đặc biệt là tại các trường đại học, cao đẳng. Hệ thống sử dụng công nghệ nhận diện khuôn mặt tiên tiến để tự động hóa việc ghi nhận sự có mặt của sinh viên, giúp tiết kiệm thời gian cho cả giáo viên và sinh viên, đồng thời tăng cường tính chính xác và minh bạch.
+
+*   **Vấn đề giải quyết:** Quy trình điểm danh thủ công tốn thời gian, dễ xảy ra sai sót, khó khăn trong việc tổng hợp và báo cáo. Việc gian lận trong điểm danh (điểm danh hộ) cũng là một vấn đề nhức nhối.
+*   **Giải pháp đề xuất:** Xây dựng một ứng dụng web/di động cho phép giáo viên tạo các phiên điểm danh, sinh viên thực hiện điểm danh nhanh chóng bằng camera của thiết bị cá nhân hoặc thiết bị đặt tại lớp học. Hệ thống tự động nhận diện và ghi nhận, cung cấp báo cáo chi tiết.
+*   **Mục tiêu chính:**
+    *   Tự động hóa quy trình điểm danh.
+    *   Nâng cao độ chính xác và chống gian lận.
+    *   Cung cấp giao diện thân thiện, dễ sử dụng cho các đối tượng người dùng (Admin, Giáo viên, Sinh viên).
+    *   Tạo báo cáo chuyên cần nhanh chóng và hiệu quả.
+    *   Tích hợp các tính năng hỗ trợ như quản lý lớp học, xin phép nghỉ, thông báo.
+
+**2. Phân tích yêu cầu**
+
+**2.1. Use Cases (Trường hợp sử dụng)**
+
+Phần này mô tả các tương tác chính của từng loại người dùng với hệ thống.
+
+**2.1.1. Admin**
+
+*   **Quản lý người dùng:**
+    *   Thêm mới tài khoản (Giáo viên, Sinh viên).
+    *   Xem danh sách người dùng.
+    *   Chỉnh sửa thông tin tài khoản.
+    *   Vô hiệu hóa/Kích hoạt tài khoản.
+    *   Đặt lại mật khẩu.
+*   **Quản lý khoa/ngành:**
+    *   Tạo mới khoa/ngành.
+    *   Xem danh sách khoa/ngành.
+    *   Chỉnh sửa thông tin khoa/ngành.
+    *   Xóa khoa/ngành (nếu không có ràng buộc).
+*   **Quản lý lớp học:**
+    *   Phân công giáo viên phụ trách cho lớp học.
+    *   Thêm/Xóa sinh viên khỏi lớp học.
+    *   Xem thông tin chi tiết các lớp học.
+*   **Phân quyền:**
+    *   Quản lý vai trò và quyền hạn truy cập chức năng của từng vai trò.
+*   **Thống kê báo cáo:**
+    *   Xem báo cáo tổng quan về tỷ lệ điểm danh toàn trường/khoa/ngành.
+    *   Thống kê số lượng người dùng, lớp học.
+    *   Theo dõi hoạt động hệ thống (log).
+
+**2.1.2. Giáo viên**
+
+*   **Quản lý lớp học:**
+    *   Xem danh sách các lớp học mình phụ trách.
+    *   Xem danh sách sinh viên trong từng lớp.
+    *   Xem thông tin chi tiết của sinh viên.
+*   **Tạo và quản lý phiên điểm danh:**
+    *   Tạo phiên điểm danh mới cho một lớp học cụ thể (theo lịch hoặc đột xuất).
+    *   Thiết lập thời gian bắt đầu, kết thúc cho phiên điểm danh.
+    *   Kích hoạt/Hủy phiên điểm danh.
+    *   Xem danh sách các phiên điểm danh đã tạo.
+*   **Theo dõi điểm danh:**
+    *   Xem trạng thái điểm danh (có mặt, vắng, muộn, có phép) của sinh viên trong một phiên đang diễn ra hoặc đã kết thúc.
+    *   Nhận thông báo khi sinh viên thực hiện điểm danh (tùy chọn).
+*   **Điều chỉnh kết quả điểm danh:**
+    *   Thay đổi trạng thái điểm danh của sinh viên trong trường hợp đặc biệt (ví dụ: sinh viên quên điểm danh nhưng có mặt, hệ thống nhận diện sai sót,...).
+    *   Ghi chú lý do điều chỉnh.
+*   **Xuất báo cáo:**
+    *   Tạo báo cáo điểm danh cho một lớp học hoặc một phiên cụ thể.
+    *   Xuất báo cáo dưới dạng file PDF hoặc Excel.
+*   **Quản lý thông báo:**
+    *   Gửi thông báo chung đến toàn bộ sinh viên trong lớp.
+    *   Xem lịch sử thông báo đã gửi.
+*   **Phê duyệt/Từ chối đơn xin phép:**
+    *   Xem danh sách đơn xin phép nghỉ học của sinh viên trong lớp.
+    *   Xem chi tiết lý do và tài liệu đính kèm (nếu có).
+    *   Phê duyệt hoặc từ chối đơn xin phép.
+
+**2.1.3. Sinh viên**
+
+*   **Đăng ký/Cập nhật khuôn mặt:**
+    *   Chụp và tải lên ảnh khuôn mặt theo hướng dẫn của hệ thống (đảm bảo đủ các góc mặt).
+    *   Huấn luyện mô hình nhận diện với dữ liệu khuôn mặt của mình.
+    *   Cập nhật ảnh khuôn mặt khi có thay đổi đáng kể.
+*   **Thực hiện điểm danh:**
+    *   Xem danh sách các phiên điểm danh đang hoạt động của các lớp mình tham gia.
+    *   Chọn phiên điểm danh và sử dụng camera để hệ thống nhận diện khuôn mặt.
+    *   Nhận kết quả điểm danh (thành công/thất bại).
+*   **Xem lịch sử điểm danh:**
+    *   Xem lại lịch sử các buổi học đã tham gia.
+    *   Xem trạng thái điểm danh của bản thân trong từng buổi.
+    *   Xem thống kê chuyên cần cá nhân (tỷ lệ có mặt, vắng mặt,...).
+*   **Gửi đơn xin phép nghỉ học:**
+    *   Tạo đơn xin phép nghỉ cho một hoặc nhiều buổi học.
+    *   Nêu rõ lý do xin nghỉ.
+    *   Đính kèm tài liệu minh chứng (nếu có, ví dụ: giấy khám bệnh).
+    *   Theo dõi trạng thái đơn xin phép (chờ duyệt, đã duyệt, bị từ chối).
+*   **Nhận thông báo:**
+    *   Nhận thông báo từ giáo viên (thông báo chung, lịch học thay đổi,...).
+    *   Nhận thông báo từ hệ thống (phiên điểm danh sắp bắt đầu, kết quả duyệt đơn xin phép,...).
+*   **Quản lý thông tin cá nhân:**
+    *   Xem và chỉnh sửa thông tin cá nhân cơ bản (số điện thoại, email liên hệ,...).
+    *   Đổi mật khẩu tài khoản.
+
+**2.2. Yêu cầu chức năng**
+
+(Phần này sẽ mô tả chi tiết hơn các chức năng dựa trên Use Cases)
+
+*   **Xác thực và phân quyền:** Đăng nhập, đăng xuất, phân quyền dựa trên vai trò (Admin, Teacher, Student). Hỗ trợ đăng nhập bằng Google.
+*   **Quản lý người dùng:** CRUD (Create, Read, Update, Delete/Deactivate) cho tài khoản người dùng.
+*   **Quản lý tổ chức:** CRUD cho Khoa/Ngành.
+*   **Quản lý lớp học:** CRUD cho Lớp học, gán giáo viên, quản lý sinh viên trong lớp.
+*   **Đăng ký khuôn mặt:** Giao diện hướng dẫn chụp ảnh, lưu trữ vector đặc trưng khuôn mặt (face descriptors).
+*   **Nhận diện khuôn mặt:** Xử lý ảnh/video từ camera, so khớp khuôn mặt với dữ liệu đã đăng ký, trả về kết quả nhận diện.
+*   **Quản lý phiên điểm danh:** Tạo phiên, đặt lịch, quản lý trạng thái phiên.
+*   **Điểm danh:** Giao diện điểm danh cho sinh viên, ghi nhận thời gian, trạng thái, thiết bị, vị trí (tùy chọn).
+*   **Quản lý đơn xin phép:** Tạo, duyệt, từ chối đơn xin phép.
+*   **Thông báo:** Hệ thống thông báo trong ứng dụng và/hoặc qua email.
+*   **Báo cáo và thống kê:** Tổng hợp dữ liệu điểm danh, xuất báo cáo PDF/Excel.
+
+**2.3. Yêu cầu phi chức năng**
+
+*   **Hiệu năng:** Hệ thống nhận diện khuôn mặt phải nhanh chóng (dưới 2-3 giây). Hệ thống phải xử lý được đồng thời nhiều yêu cầu điểm danh.
+*   **Độ chính xác:** Tỷ lệ nhận diện khuôn mặt chính xác phải cao (ví dụ: > 98%), giảm thiểu trường hợp nhận diện sai hoặc không nhận diện được.
+*   **Bảo mật:**
+    *   Mã hóa mật khẩu người dùng.
+    *   Bảo vệ dữ liệu khuôn mặt, chỉ lưu trữ vector đặc trưng, không lưu ảnh gốc (trừ ảnh mẫu đăng ký).
+    *   Phân quyền truy cập chặt chẽ.
+    *   Sử dụng HTTPS.
+    *   Chống các tấn công phổ biến (SQL Injection, XSS,...).
+*   **Tính khả dụng:** Hệ thống phải hoạt động ổn định, tỷ lệ uptime cao (ví dụ: 99.5%).
+*   **Tính dễ sử dụng:** Giao diện người dùng (UI) trực quan, thân thiện, dễ thao tác cho mọi đối tượng người dùng. Có hướng dẫn sử dụng rõ ràng.
+*   **Khả năng bảo trì:** Code có cấu trúc rõ ràng, dễ đọc, dễ hiểu, tuân thủ coding convention. Dễ dàng sửa lỗi và nâng cấp.
+*   **Khả năng mở rộng:** Kiến trúc hệ thống cho phép dễ dàng thêm tính năng mới hoặc mở rộng quy mô khi số lượng người dùng tăng lên.
+*   **Tương thích:** Giao diện web responsive, hoạt động tốt trên các trình duyệt phổ biến (Chrome, Firefox, Safari, Edge) và các kích thước màn hình khác nhau (Desktop, Tablet, Mobile).
+
+**3. Thiết kế hệ thống**
+
+**(Phần này sẽ đi sâu vào chi tiết kỹ thuật)**
+
+**3.1. Kiến trúc hệ thống**
+
+*   **Mô tả kiến trúc tổng thể:** Hệ thống được xây dựng theo kiến trúc **Client-Server**.
+    *   **Frontend (Client):** Là một Single Page Application (SPA) được xây dựng bằng **React**. Frontend chịu trách nhiệm hiển thị giao diện người dùng, thu thập dữ liệu nhập liệu, tương tác với webcam để chụp ảnh, thực hiện **nhận diện khuôn mặt bằng thư viện `face-api.js` trực tiếp trên trình duyệt**, và giao tiếp với Backend thông qua RESTful API.
+    *   **Backend (Server):** Được xây dựng bằng **Node.js** và framework **Express.js**. Backend đóng vai trò là một API server, xử lý logic nghiệp vụ cốt lõi (quản lý người dùng, lớp học, phiên điểm danh, phê duyệt đơn,...), xác thực người dùng (sử dụng JWT và Passport.js), quản lý quyền truy cập, tương tác với cơ sở dữ liệu, và lưu trữ vector đặc trưng khuôn mặt do Frontend gửi lên.
+    *   **Database:** Sử dụng cơ sở dữ liệu NoSQL là **MongoDB**, được quản lý thông qua ODM **Mongoose**. Lưu trữ thông tin người dùng, lớp học, phiên điểm danh, kết quả điểm danh, đơn xin phép, thông báo và các vector đặc trưng khuôn mặt.
+    *   **Face Recognition Logic:** Quá trình nhận diện (so khớp khuôn mặt) được thực hiện chủ yếu ở **Frontend** sử dụng `face-api.js`. Backend lưu trữ các mô tả khuôn mặt (face descriptors) đã được đăng ký và cung cấp chúng cho Frontend khi cần thiết cho việc so sánh. Quy trình đăng ký khuôn mặt cũng diễn ra ở Frontend, sau đó vector đặc trưng được gửi lên Backend để lưu trữ.
+*   **Luồng dữ liệu chính (Ví dụ: Luồng điểm danh - Thực hiện bởi Giáo viên):**
+    1.  **Giáo viên (GV)** vào trang điểm danh của lớp học (`/teacher/attendance/:classId/:sessionId`) trên Frontend.
+    2.  Frontend kiểm tra trạng thái phiên điểm danh (`sessionId`).
+    3.  Frontend **tải các mô hình của `face-api.js`** (`tinyFaceDetector`, `faceLandmark68Net`, `faceRecognitionNet`) từ thư mục `public/models`.
+    4.  Frontend gọi action `getClassFaceFeatures(classId)` (Redux Thunk).
+    5.  Action này gọi API Backend `GET /api/face-recognition/class-features/:classId` để lấy danh sách sinh viên và các vector đặc trưng khuôn mặt (`faceDescriptors`) của họ trong lớp.
+    6.  Backend truy vấn MongoDB và trả về dữ liệu.
+    7.  Dữ liệu khuôn mặt sinh viên được lưu vào Redux state (`faceRecognition.classStudents`).
+    8.  Frontend khởi tạo `react-webcam` để hiển thị luồng video từ camera của GV.
+    9.  GV có thể bật chế độ **Điểm danh tự động** hoặc nhấn nút **Chụp và Nhận diện**.
+    10. **(Chế độ tự động)**: Một interval (`setInterval`) được kích hoạt, định kỳ (ví dụ: 1.5 giây) thực hiện các bước sau:
+        *   Lấy frame hiện tại từ webcam.
+        *   Sử dụng `face-api.js` (`detectAllFaces`, `withFaceLandmarks`, `withFaceDescriptors`) để phát hiện tất cả khuôn mặt, landmarks và trích xuất vector đặc trưng từ frame.
+        *   Sử dụng `faceapi.FaceMatcher` để so sánh các vector vừa trích xuất với `faceDescriptors` của sinh viên trong lớp (lấy từ Redux state).
+        *   Với mỗi khuôn mặt được nhận diện có độ tin cậy (`confidence` = 1 - distance) cao hơn ngưỡng (`CONFIDENCE_THRESHOLD`), Frontend sẽ:
+            *   Kiểm tra xem sinh viên đó đã được điểm danh 'present' trong state cục bộ (`attendanceLogs`) chưa.
+            *   Nếu chưa, gọi action `verifyAttendance` (Redux Thunk).
+            *   Action `verifyAttendance` gọi API Backend `POST /api/face-recognition/verify-attendance` với `sessionId`, `studentId`, `confidence`, và `imageBase64` (ảnh chụp từ webcam).
+            *   Backend xử lý (validation, lưu ảnh, tạo/cập nhật `AttendanceLog` và `AttendanceSession`).
+            *   Kết quả từ Backend cập nhật lại Redux state và state cục bộ (`attendanceLogs`).
+    11. **(Vẽ lên Canvas)**: Song song với nhận diện, Frontend liên tục (hoặc trong chế độ thủ công) vẽ các hộp bao quanh khuôn mặt, tên sinh viên nhận diện được và độ tin cậy lên một thẻ `<canvas>` phủ trên webcam để GV theo dõi.
+    12. GV cũng có thể **điểm danh thủ công** cho sinh viên thông qua dialog (gọi API `POST /api/face-recognition/manual-attendance`).
+
+**3.2. Thiết kế cơ sở dữ liệu**
+
+*   **Mô hình dữ liệu (NoSQL - MongoDB):** Sử dụng các collections như đã mô tả trong `README.md`: `Users`, `Departments`, `Classes`, `AttendanceSessions`, `AttendanceRecords`, `LeaveRequests`, `Notifications`. Mongoose schemas được định nghĩa trong thư mục `backend/src/models`.
+*   **Giải thích chi tiết các collections:** (Giữ nguyên như phần trước, dựa trên README)
+    *   **Users:** Lưu thông tin người dùng, vai trò, mật khẩu đã hash (`bcryptjs`), `googleId` (nếu đăng nhập bằng Google), và mảng `faceDescriptors` (vector đặc trưng khuôn mặt dạng Number array do `face-api.js` tạo ra).
+    *   **Departments:** Lưu thông tin khoa/ngành.
+    *   **Classes:** Lưu thông tin lớp học, liên kết `teacher` và `students` qua ObjectId.
+    *   **AttendanceSessions:** Lưu thông tin các phiên điểm danh.
+    *   **AttendanceRecords:** Lưu chi tiết kết quả điểm danh, bao gồm `student`, `session`, `status`, `checkInTime`, `detectionConfidence` (độ tin cậy từ `face-api.js`).
+    *   **LeaveRequests:** Lưu thông tin đơn xin phép nghỉ.
+    *   **Notifications:** Lưu các thông báo của hệ thống.
+
+**3.3. Thiết kế giao diện người dùng (Sơ bộ)**
+
+*   **Công nghệ:** React kết hợp với thư viện component **Material UI (MUI)** để xây dựng giao diện người dùng nhất quán và hiện đại. State được quản lý bằng **Redux Toolkit** và `redux-persist`. Routing được xử lý bởi `react-router-dom`.
+*   **Wireframes hoặc Mockups:** (Phần này cần người thực hiện dự án bổ sung hình ảnh phác thảo hoặc ảnh chụp màn hình thực tế của các giao diện chính). Ví dụ:
+    *   Trang Đăng nhập / Đăng ký.
+    *   Dashboard Admin: Quản lý Users, Departments, Classes.
+    *   Dashboard Giáo viên: Danh sách lớp học, Tạo/Quản lý phiên điểm danh, Xem kết quả điểm danh, Duyệt đơn xin phép.
+    *   Dashboard Sinh viên: Đăng ký khuôn mặt, Danh sách phiên điểm danh, Thực hiện điểm danh (giao diện webcam), Xem lịch sử, Gửi đơn xin phép.
+    *   Các component chung: Bảng dữ liệu (`@mui/x-data-grid`), Form nhập liệu, Dialog, Calendar/DatePicker (`@mui/x-date-pickers`).
+*   **Mô tả luồng giao diện:** Sử dụng `react-router-dom` để điều hướng giữa các trang (`pages`). Các `layouts` định nghĩa cấu trúc chung (ví dụ: `DashboardLayout` với sidebar). Các `components` tái sử dụng được dùng trong các `pages`. `Redux` quản lý trạng thái chung như thông tin người dùng đăng nhập, danh sách lớp học,...
+
+**3.4. Thiết kế các thành phần chính**
+
+*   **Module nhận diện khuôn mặt (Frontend - trang điểm danh của Giáo viên):**
+    *   **Thư viện:** `face-api.js` (chạy trên trình duyệt của Giáo viên).
+    *   **Mô hình:** Sử dụng các mô hình được huấn luyện sẵn của `face-api.js` được tải từ `frontend/public/models` (ví dụ: `TinyFaceDetector`, `FaceLandmark68Net`, `FaceRecognitionNet`).
+    *   **Quy trình chuẩn bị:**
+        1.  Tải mô hình `face-api.js`.
+        2.  Gọi API backend (`/api/face-recognition/class-features/:classId`) để lấy danh sách sinh viên và `faceDescriptors` của họ.
+        3.  Khởi tạo `faceapi.FaceMatcher` với dữ liệu khuôn mặt sinh viên.
+    *   **Quy trình nhận diện (Tự động hoặc Thủ công):**
+        1.  Sử dụng `react-webcam` để lấy luồng video/ảnh từ camera của GV.
+        2.  Dùng `face-api.js` để phát hiện khuôn mặt (`detectAllFaces`), landmarks (`withFaceLandmarks`) và trích xuất descriptor (`withFaceDescriptors`).
+        3.  So khớp descriptor từ camera với `FaceMatcher` đã tạo.
+        4.  Xác định sinh viên khớp nhất với độ tin cậy (`confidence`) cao hơn ngưỡng.
+        5.  Gọi API backend (`/api/face-recognition/verify-attendance`) để ghi nhận điểm danh, gửi kèm `studentId`, `sessionId`, `confidence`, và ảnh chụp `imageBase64`.
+    *   **Hiển thị:** Vẽ bounding box, tên sinh viên và độ tin cậy lên canvas phủ trên webcam.
+    *   **Liveness Detection:** **Vẫn chưa được triển khai**, là một hạn chế lớn.
+*   **Module đăng ký khuôn mặt (Frontend - trang đăng ký của Sinh viên):**
+    *   **Thư viện:** `face-api.js` (chạy trên trình duyệt của Sinh viên).
+    *   **Component:** Sử dụng `FaceRegistrationComponent` để hiển thị camera và xử lý chụp ảnh.
+    *   **Quy trình (Trang `FaceRegistrationPage.js`):**
+        1.  Hướng dẫn người dùng qua các bước bằng Stepper.
+        2.  Kiểm tra trạng thái đăng ký trước đó.
+        3.  Tải mô hình `face-api.js`.
+        4.  Ở bước chụp ảnh, `FaceRegistrationComponent` được hiển thị.
+        5.  Người dùng chụp đủ số lượng ảnh yêu cầu (ví dụ: 3 ảnh).
+        6.  Với mỗi ảnh, `FaceRegistrationComponent` dùng `face-api.js` (`detectSingleFace().withFaceLandmarks().withFaceDescriptor()`) để phát hiện và trích xuất vector đặc trưng.
+        7.  `FaceRegistrationComponent` trả về mảng các vector đặc trưng đã trích xuất cho `FaceRegistrationPage`.
+        8.  Ở bước xác nhận, `FaceRegistrationPage` gửi mảng các vector đặc trưng này cùng `userId` lên API backend (`POST /api/face-recognition/save-features`).
+    *   **Backend:** Endpoint `save-features` lưu mảng các vector đặc trưng vào trường `faceFeatures.descriptors` của người dùng trong MongoDB.
+*   **API Backend (Node.js/Express):**
+    *   **Cấu trúc:** Giữ nguyên mô tả.
+    *   **Endpoints chính liên quan điểm danh/khuôn mặt:**
+        *   `POST /api/face-recognition/save-features`: Sinh viên lưu đặc trưng khuôn mặt.
+        *   `GET /api/face-recognition/class-features/:classId`: GV lấy đặc trưng khuôn mặt SV trong lớp.
+        *   `POST /api/face-recognition/verify-attendance`: GV ghi nhận điểm danh tự động (từ frontend).
+        *   `POST /api/face-recognition/manual-attendance`: GV ghi nhận điểm danh thủ công.
+        *   Các API trong `attendance.routes.js` để quản lý phiên, xem logs.
+    *   **Logic Controller (`faceRecognition.controller.js`):** Hàm `verifyAttendance` nhận thông tin từ frontend, kiểm tra hợp lệ, lưu ảnh chụp (nếu có) vào `uploads/faces`, tạo/cập nhật bản ghi `AttendanceLog` và `AttendanceSession` trong MongoDB.
+
+**4. Công nghệ sử dụng**
+
+*   **Backend:**
+    *   **Ngôn ngữ:** Node.js (JavaScript)
+    *   **Framework:** Express.js
+    *   **Cơ sở dữ liệu:** MongoDB
+    *   **ODM:** Mongoose
+    *   **Xác thực/Authorization:** Passport.js (Strategies: JWT, Google OAuth 2.0), JSON Web Token (jsonwebtoken), bcryptjs
+    *   **API:** RESTful API
+    *   **Middleware:** Cors, Multer (File Uploads)
+    *   **Validation:** express-validator
+    *   **Khác:** dotenv (Environment Variables)
+    *   **Runtime:** Node.js
+*   **Frontend:**
+    *   **Thư viện:** React.js
+    *   **Ngôn ngữ:** JavaScript
+    *   **UI Framework:** Material UI (MUI v5)
+    *   **Routing:** React Router DOM v6
+    *   **State Management:** Redux Toolkit, React-Redux, Redux Persist
+    *   **HTTP Client:** Axios
+    *   **Nhận diện khuôn mặt:** face-api.js
+    *   **Webcam Access:** react-webcam
+    *   **Notifications:** notistack / react-hot-toast
+    *   **Styling:** Emotion (@emotion/react, @emotion/styled) - đi kèm MUI
+    *   **Build Tool:** Create React App (react-scripts)
+    *   **Khác:** date-fns, jwt-decode, react-helmet-async
+*   **DevOps/Deployment (Dự đoán/Đề xuất):**
+    *   **Quản lý source code:** Git, GitHub (Dự đoán dựa trên sự phổ biến)
+    *   **Containerization:** Docker (Có thể sử dụng, tạo Dockerfile cho frontend và backend)
+    *   **Nền tảng triển khai:** Vercel (cho Frontend React), Heroku/AWS EC2/Google Cloud Run (cho Backend Node.js), MongoDB Atlas (cho Database) - Đây là các lựa chọn phổ biến.
+*   **Công cụ khác (Dự đoán/Đề xuất):**
+    *   **Quản lý dự án:** Jira, Trello, Asana,...
+    *   **Thiết kế UI/UX:** Figma
+    *   **Testing:** Jest, React Testing Library (cho Frontend), Supertest, Mocha, Chai (cho Backend) - Hiện tại script test là mặc định, chưa có test cụ thể.
+
+**(Phần Công nghệ sử dụng đã được cập nhật chi tiết dựa trên package.json và cấu trúc thư mục)**
+
+**5. Cài đặt và triển khai**
+
+**5.1. Hướng dẫn cài đặt**
+
+*   **Yêu cầu môi trường:**
+    *   Node.js (Kiểm tra phiên bản tương thích, ví dụ: >= 16.x)
+    *   npm hoặc yarn
+    *   MongoDB (Cài đặt local hoặc sử dụng dịch vụ cloud như MongoDB Atlas)
+    *   Git
+*   **Các bước cài đặt Backend:**
+    1. Clone repository.
+    2. Di chuyển vào thư mục `backend`.
+    3. Cài đặt dependencies (`npm install` hoặc `yarn install`).
+    4. Cấu hình biến môi trường: Tạo file `.env` trong thư mục `backend` dựa trên file `.env.example` (nếu có) hoặc theo yêu cầu (ít nhất cần `MONGODB_URI`, `JWT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`).
+    5. **Khởi tạo tài khoản Admin:** Khi máy chủ backend khởi động lần đầu tiên (`npm run dev` hoặc `npm start`), hệ thống sẽ tự động kiểm tra và tạo một tài khoản quản trị viên (Admin) mặc định nếu chưa tồn tại trong cơ sở dữ liệu. Thông tin đăng nhập mặc định là:
+        *   Email: `admin@sys.com`
+        *   Mật khẩu: `123456`
+        Bạn nên đổi mật khẩu này ngay sau khi đăng nhập lần đầu tiên để đảm bảo bảo mật. Quá trình tạo sẽ được ghi log trên console của backend.
+    6. Chạy server development: `npm run dev` (sử dụng nodemon) hoặc `npm start` (chạy trực tiếp).
+*   **Các bước cài đặt Frontend:**
+    1. Clone repository.
+    2. Di chuyển vào thư mục `frontend`.
+    3. Cài đặt dependencies (`npm install` hoặc `yarn install`).
+    4. Cấu hình biến môi trường (nếu cần): Tạo file `.env` trong thư mục `frontend`. Biến quan trọng nhất là `REACT_APP_API_URL` để trỏ đến địa chỉ Backend API (ví dụ: `REACT_APP_API_URL=http://localhost:5000/api`).
+    5. Chạy ứng dụng development: `npm start` hoặc `yarn start`.
+*   **Cài đặt cơ sở dữ liệu:**
+    *   **Local:** Cài đặt MongoDB Community Server theo hướng dẫn trên trang chủ MongoDB.
+    *   **Cloud:** Đăng ký tài khoản MongoDB Atlas, tạo cluster miễn phí, lấy chuỗi kết nối (Connection String) và cấu hình IP Whitelist.
+*   **Lưu ý:** Cần tải các model của `face-api.js` về và đặt vào thư mục `frontend/public/models` để frontend có thể load khi chạy.
+
+**5.2. Hướng dẫn sử dụng**
+
+*   Mô tả các bước cơ bản để sử dụng các chức năng chính cho từng vai trò người dùng (đăng nhập, đăng ký khuôn mặt, tạo phiên điểm danh, thực hiện điểm danh,...). Có thể kèm theo ảnh chụp màn hình.
+
+**6. Kết luận và hướng phát triển**
+
+*   **Tóm tắt kết quả đạt được:** Hệ thống đã hoàn thành các chức năng chính nào? Mức độ hoàn thiện?
+*   **Ưu điểm:** Những điểm mạnh của hệ thống (ví dụ: giao diện thân thiện, tốc độ nhận diện nhanh, độ chính xác cao,...).
+*   **Hạn chế:**
+    *   Nhận diện khuôn mặt thực hiện ở client (`face-api.js`) có thể bị ảnh hưởng bởi hiệu năng của thiết bị người dùng.
+    *   Độ chính xác của `face-api.js` phụ thuộc vào chất lượng ảnh/video, điều kiện ánh sáng, và các mô hình được sử dụng.
+    *   **Thiếu Liveness Detection:** Hệ thống hiện tại có thể dễ bị giả mạo bằng cách sử dụng ảnh hoặc video của người khác chiếu vào camera. Đây là một lỗ hổng bảo mật nghiêm trọng cho ứng dụng điểm danh.
+    *   Chưa có ứng dụng di động riêng biệt.
+    *   Phần test tự động chưa được triển khai đầy đủ.
+*   **Hướng phát triển trong tương lai:**
+    *   **Triển khai Liveness Detection:** Tích hợp các kỹ thuật chống giả mạo (ví dụ: yêu cầu người dùng thực hiện hành động ngẫu nhiên như chớp mắt, quay đầu; sử dụng các thư viện/API chuyên dụng).
+    *   **Tối ưu nhận diện:** Cân nhắc chuyển một phần hoặc toàn bộ logic nhận diện nặng về phía Backend (sử dụng thư viện Python như Dlib, OpenCV hoặc các dịch vụ Cloud AI như AWS Rekognition, Azure Face API) để giảm tải cho client và tăng tính bảo mật, đồng nhất.
+    *   Phát triển ứng dụng di động (React Native, Flutter) để tăng tính tiện lợi.
+
+**7. Tài liệu tham khảo**
+
+*   Liệt kê các bài báo khoa học, trang web, thư viện, framework đã tham khảo trong quá trình thực hiện dự án.
+*   Ví dụ: Tài liệu của `face-api.js` (https://github.com/justadudewhohacks/face-api.js), tài liệu React, Redux Toolkit, Material UI, Node.js, Express.js, MongoDB, Passport.js,...
+
+**8. Kiểm thử hệ thống**
+
+Phần này mô tả các hoạt động kiểm thử đã được thực hiện để đảm bảo chất lượng và sự ổn định của hệ thống FaceReg.
+
+**8.1. Chiến lược kiểm thử**
+
+*(Mô tả phương pháp tiếp cận tổng thể. Ví dụ: Tập trung vào kiểm thử chức năng thủ công cho các luồng nghiệp vụ chính, kiểm thử giao diện người dùng trên các trình duyệt phổ biến, và lên kế hoạch cho kiểm thử tự động trong tương lai.)*
+
+*   **Kiểm thử đơn vị (Unit Testing):** (Hiện tại chưa được triển khai nhiều dựa trên package.json). Mục tiêu là kiểm tra từng thành phần nhỏ (hàm, component, module) một cách độc lập.
+    *   *Ví dụ:* Kiểm tra hàm tính toán khoảng cách Euclidean trong `face-api.js` wrapper, kiểm tra hàm validate email trong backend, kiểm tra một component React hiển thị đúng dữ liệu đầu vào.
+*   **Kiểm thử tích hợp (Integration Testing):** (Chủ yếu thực hiện thủ công). Mục tiêu là kiểm tra sự tương tác giữa các thành phần khác nhau.
+    *   *Ví dụ:* Kiểm tra luồng Frontend gọi API Backend để lưu đặc trưng khuôn mặt, kiểm tra luồng Frontend gọi API Backend để xác nhận điểm danh.
+*   **Kiểm thử hệ thống/Chức năng (System/Functional Testing):** (Thực hiện thủ công). Kiểm tra toàn bộ hệ thống dựa trên các yêu cầu và use cases đã định nghĩa.
+    *   *Ví dụ:* Kiểm tra luồng đăng ký hoàn chỉnh, luồng điểm danh hoàn chỉnh từ phía giáo viên, luồng quản lý lớp học của admin.
+*   **Kiểm thử giao diện người dùng (UI Testing):** Kiểm tra tính đúng đắn, thẩm mỹ và responsive của giao diện trên các trình duyệt và thiết bị khác nhau.
+    *   *Ví dụ:* Kiểm tra hiển thị trên Chrome, Firefox; kiểm tra trên màn hình desktop, mobile; kiểm tra các nút bấm, form nhập liệu.
+*   **Kiểm thử hiệu năng (Performance Testing):** (Chưa thực hiện). Đánh giá tốc độ phản hồi của hệ thống, khả năng chịu tải.
+    *   *Ví dụ:* Thời gian nhận diện khuôn mặt, thời gian phản hồi API khi nhiều người dùng điểm danh.
+*   **Kiểm thử bảo mật (Security Testing):** (Chưa thực hiện sâu). Đánh giá các lỗ hổng bảo mật tiềm ẩn.
+    *   *Ví dụ:* Kiểm tra phân quyền API, kiểm tra khả năng giả mạo điểm danh (Liveness Detection - đang là hạn chế).
+*   **Kiểm thử chấp nhận người dùng (User Acceptance Testing - UAT):** (Tùy chọn) Để người dùng cuối (GV, SV) dùng thử và phản hồi.
+
+**8.2. Kế hoạch kiểm thử và Test Cases (Ví dụ)**
+
+*(Liệt kê các trường hợp kiểm thử (test cases) chi tiết cho các chức năng quan trọng. Mỗi test case nên có ID, Mô tả, Các bước thực hiện, Kết quả mong đợi, Kết quả thực tế, Trạng thái (Pass/Fail)). Dưới đây là một số ví dụ:*)
+
+**Bảng 1: Test Cases cho chức năng Đăng nhập**
+
+| ID    | Mô tả                             | Các bước thực hiện                                                                 | Kết quả mong đợi                                                                     | Kết quả thực tế | Trạng thái |
+| :---- | :-------------------------------- | :--------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------ | :-------------- | :--------- |
+| TC_LOGIN_01 | Đăng nhập thành công (SV)        | 1. Mở trang Login. 2. Nhập email SV hợp lệ. 3. Nhập mật khẩu đúng. 4. Nhấn nút Login. | Hệ thống chuyển hướng đến Dashboard Sinh viên. Hiển thị tên SV.                      |                 |            |
+| TC_LOGIN_02 | Đăng nhập thất bại (sai MK)      | 1. Mở trang Login. 2. Nhập email SV hợp lệ. 3. Nhập mật khẩu sai. 4. Nhấn nút Login.  | Hệ thống hiển thị thông báo lỗi "Sai email hoặc mật khẩu". Vẫn ở trang Login.         |                 |            |
+| TC_LOGIN_03 | Đăng nhập thất bại (email trống) | 1. Mở trang Login. 2. Để trống email. 3. Nhập mật khẩu. 4. Nhấn nút Login.         | Hệ thống hiển thị thông báo lỗi validation yêu cầu nhập email. Nút Login có thể bị vô hiệu hóa. |                 |            |
+| TC_LOGIN_04 | Đăng nhập bằng Google thành công | 1. Mở trang Login. 2. Nhấn nút "Đăng nhập với Google". 3. Chọn tài khoản Google đã liên kết. | Hệ thống chuyển hướng đến Dashboard tương ứng.                                         |                 |            |
+
+**Bảng 2: Test Cases cho chức năng Đăng ký khuôn mặt (Sinh viên)**
+
+| ID    | Mô tả                                | Các bước thực hiện                                                                                                                                  | Kết quả mong đợi                                                                                                        | Kết quả thực tế | Trạng thái |
+| :---- | :----------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------- | :-------------- | :--------- |
+| TC_REGFACE_01 | Đăng ký thành công             | 1. SV vào trang Đăng ký khuôn mặt. 2. Làm theo hướng dẫn các bước. 3. Chụp đủ 3 ảnh hợp lệ (có khuôn mặt rõ ràng). 4. Nhấn nút "Đăng ký khuôn mặt". | Hệ thống lưu thành công. Hiển thị thông báo thành công. Chuyển sang bước hoàn thành. Trạng thái đăng ký của SV được cập nhật. |                 |            |
+| TC_REGFACE_02 | Chụp ảnh không có khuôn mặt    | 1. SV ở bước chụp ảnh. 2. Đưa vật thể khác (không phải mặt) vào camera. 3. Nhấn nút chụp.                                                        | Hệ thống báo lỗi "Không phát hiện được khuôn mặt rõ ràng". Không lưu ảnh.                                             |                 |            |
+| TC_REGFACE_03 | Chưa chụp đủ ảnh khi nhấn Đăng ký | 1. SV ở bước xác nhận. 2. Mới chỉ chụp 1 hoặc 2 ảnh. 3. Nhấn nút "Đăng ký khuôn mặt".                                                              | Hệ thống báo lỗi "Cần đủ 3 ảnh để đăng ký". Không gửi dữ liệu lên server.                                             |                 |            |
+| TC_REGFACE_04 | Lỗi kết nối khi Đăng ký        | 1. SV ở bước xác nhận, đã chụp đủ ảnh. 2. Ngắt kết nối mạng. 3. Nhấn nút "Đăng ký khuôn mặt".                                                     | Hệ thống báo lỗi "Lỗi kết nối mạng" hoặc "Lỗi lưu dữ liệu".                                                           |                 |            |
+
+**Bảng 3: Test Cases cho chức năng Điểm danh (Giáo viên - Tự động)**
+
+| ID    | Mô tả                                     | Các bước thực hiện                                                                                                                                                  | Kết quả mong đợi                                                                                                                                 | Kết quả thực tế | Trạng thái |
+| :---- | :---------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------ | :----------------------------------------------------------------------------------------------------------------------------------------------- | :-------------- | :--------- |
+| TC_ATT_AUTO_01 | Nhận diện và điểm danh SV thành công | 1. GV vào trang điểm danh của phiên đang active. 2. Bật chế độ tự động. 3. Một SV (đã đăng ký face) đi vào khung hình camera.                                       | Hệ thống vẽ hộp xanh quanh mặt SV, hiển thị tên và độ tin cậy > ngưỡng. Gửi yêu cầu verify lên backend. Cập nhật trạng thái SV thành 'present'. |                 |            |
+| TC_ATT_AUTO_02 | Không điểm danh SV đã có mặt       | 1. GV vào trang điểm danh. 2. Bật chế độ tự động. 3. SV A đã được điểm danh 'present'. 4. SV A tiếp tục ở trong khung hình.                                          | Hệ thống vẫn nhận diện SV A nhưng không gửi lại yêu cầu verify và không thay đổi trạng thái.                                                    |                 |            |
+| TC_ATT_AUTO_03 | Nhận diện SV chưa đăng ký face    | 1. GV vào trang điểm danh. 2. Bật chế độ tự động. 3. Một người lạ (hoặc SV chưa đăng ký face) vào khung hình.                                                    | Hệ thống có thể vẽ hộp xanh dương quanh mặt nhưng không hiển thị tên (hoặc ghi "unknown"). Không gửi yêu cầu verify.                           |                 |            |
+| TC_ATT_AUTO_04 | Điểm danh khi phiên chưa active     | 1. GV vào trang điểm danh của phiên 'scheduled' hoặc 'completed'. 2. (Nút bật chế độ tự động có thể bị vô hiệu hóa). Nếu bật được, SV đi vào khung hình. | Hệ thống không thực hiện nhận diện hoặc không gửi yêu cầu verify. Có thể hiển thị thông báo phiên không hoạt động.                             |                 |            |
+
+*(Thêm các bảng test cases cho các chức năng khác: Quản lý người dùng (Admin), Quản lý lớp học (Admin/GV), Tạo phiên điểm danh (GV), Điểm danh thủ công (GV), Xin phép nghỉ (SV), Duyệt đơn (GV), Xem báo cáo,...)*
+
+**8.3. Kết quả kiểm thử**
+
+*(Tóm tắt kết quả chung của quá trình kiểm thử)*
+
+*   **Tóm tắt:** Đã thực hiện kiểm thử chức năng thủ công cho các luồng nghiệp vụ chính của Admin, Giáo viên và Sinh viên. Hầu hết các chức năng hoạt động đúng như mong đợi. Giao diện người dùng được kiểm tra trên trình duyệt Chrome và Firefox phiên bản mới nhất.
+*   **Các lỗi phát hiện và đã sửa:** (Liệt kê một số lỗi tiêu biểu nếu có, ví dụ: Lỗi hiển thị ngày tháng sai định dạng, lỗi phân quyền khi GV cố truy cập chức năng Admin,...)
+*   **Các vấn đề còn tồn tại/Hạn chế:**
+    *   Chưa có kiểm thử đơn vị và tích hợp tự động.
+    *   Chưa thực hiện kiểm thử hiệu năng và kiểm thử bảo mật chuyên sâu.
+    *   Thiếu Liveness Detection là một rủi ro bảo mật lớn cho chức năng điểm danh.
+    *   Kiểm thử giao diện trên nhiều thiết bị di động và trình duyệt cũ hơn còn hạn chế.
+
+**8.4. Môi trường kiểm thử**
+
+*   **Hệ điều hành:** Windows 11, macOS Sonoma
+*   **Trình duyệt:** Google Chrome (vXXX), Mozilla Firefox (vYYY)
+*   **Thiết bị:** Laptop cá nhân, (Mô phỏng mobile trên trình duyệt)
+*   **Mạng:** Mạng Wifi cá nhân
+
+---
+*(Lưu ý: Đây là cấu trúc và ví dụ. Bạn cần điền thông tin chi tiết dựa trên quá trình kiểm thử thực tế bạn đã làm hoặc sẽ làm cho dự án.)*
+
+
+---
