@@ -15,7 +15,12 @@ const {
   getUserStats,
   registerClass,
   getPublicAdvisors,
+  checkIdentifier,
 } = require("../controllers/user.controller");
+
+// PUBLIC ROUTE - Để kiểm tra xem mã định danh (student_id, teacher_code, email) đã tồn tại chưa
+// Route này nên được đặt TRƯỚC bất kỳ middleware xác thực nào có thể áp dụng cho tất cả các route của user
+router.get("/check-identifier", checkIdentifier);
 
 // @route   GET /api/users
 // @desc    Lấy tất cả người dùng (với phân trang và tìm kiếm)

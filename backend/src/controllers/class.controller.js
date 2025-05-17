@@ -386,6 +386,31 @@ exports.updateMainClass = async (req, res) => {
       })
       .populate("advisor_id", "full_name email");
 
+    // Gửi thông báo cho sinh viên trong lớp nếu có sự thay đổi quan trọng
+    if (
+      updatedMainClass &&
+      existingClass.students &&
+      existingClass.students.length > 0
+    ) {
+      const studentIds = existingClass.students.map(
+        (student) => student._id || student
+      ); // student có thể là ObjectId hoặc object User đã populate
+      const notifications = studentIds.map((studentId) => ({
+        receiver_id: studentId,
+        sender_id: req.user.id, // Người thực hiện thay đổi
+        type: "SCHEDULE_UPDATE", // Hoặc một type phù hợp hơn như 'CLASS_INFO_UPDATE'
+        content: `Thông tin lớp chính '${existingClass.name}' đã được cập nhật.`,
+        link: `/class-details/${mainClassId}`, // Link tới trang chi tiết lớp học
+        data: {
+          mainClassId: mainClassId,
+          className: existingClass.name,
+        },
+      }));
+      if (notifications.length > 0) {
+        await Notification.insertMany(notifications);
+      }
+    }
+
     res.status(200).json({
       success: true,
       data: updatedMainClass,
@@ -451,7 +476,8 @@ exports.deleteMainClass = async (req, res) => {
 
     // 3. Xóa Notification liên quan đến việc phê duyệt/từ chối vào lớp này
     await Notification.deleteMany({
-      $or: [{ type: "class_approval", "data.class_id": mainClassId }],
+      type: "CLASS_ENROLLMENT", // Cập nhật type
+      "data.mainClassId": mainClassId, // Cập nhật đường dẫn trong data
     });
 
     // 4. Xóa Lớp chính
@@ -1195,6 +1221,32 @@ exports.updateTeachingClass = async (req, res) => {
       course_end_date
     ) {
       await generateAttendanceSessions(updatedClass);
+    }
+
+    // Gửi thông báo cho sinh viên trong lớp nếu có sự thay đổi quan trọng
+    if (
+      updatedClass &&
+      teachingClass.students &&
+      teachingClass.students.length > 0
+    ) {
+      const studentIds = teachingClass.students.map(
+        (student) => student._id || student
+      ); // student có thể là ObjectId hoặc object User đã populate
+
+      const notifications = studentIds.map((studentId) => ({
+        receiver_id: studentId,
+        sender_id: req.user.id, // Người thực hiện thay đổi
+        type: "SCHEDULE_UPDATE", // Hoặc một type phù hợp hơn như 'CLASS_INFO_UPDATE'
+        content: `Thông tin lớp học phần '${teachingClass.class_name}' đã được cập nhật.`,
+        link: `/teaching-class-details/${updatedClass._id}`, // Link tới trang chi tiết lớp học phần
+        data: {
+          teachingClassId: updatedClass._id,
+          className: teachingClass.class_name,
+        },
+      }));
+      if (notifications.length > 0) {
+        await Notification.insertMany(notifications);
+      }
     }
 
     res.status(200).json({
@@ -1956,7 +2008,23 @@ exports.getPendingStudents = async (req, res) => {
     const pendingStudents = await User.find({
       _id: { $in: mainClass.pending_students },
       role: "student",
-    }).select("-password -refresh_token");
+      status: "pending",
+    })
+      .select("-password -refresh_token -faceFeatures.descriptors") // Loại bỏ descriptors lớn
+      .populate({
+        path: "school_info.class_id",
+        select: "name class_code major_id year_start",
+        populate: {
+          path: "major_id",
+          select: "name code department_id",
+          populate: {
+            path: "department_id",
+            select: "name code",
+          },
+        },
+      })
+      .populate("contact") // Populate thông tin liên hệ
+      .sort({ created_at: -1 }); // Sắp xếp theo ngày tạo mới nhất lên trước
 
     const pendingStudentsWithFaceInfo = pendingStudents.map((student) => {
       const studentObj = student.toObject();
@@ -2053,17 +2121,29 @@ exports.approveStudent = async (req, res) => {
     );
     await mainClass.save();
 
-    await Notification.create({
-      recipient_id: studentId,
-      sender_id: req.user.id,
-      type: "class_approval",
-      title: "Đăng ký lớp học được chấp nhận",
-      content: `Yêu cầu tham gia lớp ${mainClass.name} của bạn đã được chấp nhận.`,
-      data: {
-        class_id: id,
-        class_name: mainClass.name,
-      },
-    });
+    try {
+      await Notification.create({
+        title: "Đăng ký lớp học được chấp nhận",
+        content: `Yêu cầu tham gia lớp ${mainClass.name} (${mainClass.class_code}) của bạn đã được chấp nhận.`,
+        type: "CLASS_ENROLLMENT",
+        sender_id: req.user.id,
+        receiver_id: studentId,
+        data: {
+          studentId: studentId,
+          studentName: student.full_name, // Giả sử student đã được populate hoặc lấy thông tin trước đó
+          mainClassId: id,
+          mainClassName: mainClass.name,
+          mainClassCode: mainClass.class_code,
+          status: "approved",
+        },
+        link: `/student/classes/main/${id}`, // Link tới trang chi tiết lớp chính của sinh viên
+      });
+    } catch (notifError) {
+      console.error(
+        "Lỗi khi tạo thông báo phê duyệt sinh viên vào lớp:",
+        notifError
+      );
+    }
 
     return res.status(200).json({
       success: true,
@@ -2140,14 +2220,36 @@ exports.rejectStudent = async (req, res) => {
       await mainClass.save();
     }
 
-    if (reason) {
+    try {
       await Notification.create({
-        title: "Đăng ký lớp bị từ chối",
-        content: `Yêu cầu tham gia lớp ${mainClass.name} của bạn đã bị từ chối. Lý do: ${reason}`,
+        title: "Đăng ký lớp học bị từ chối",
+        content: `Yêu cầu tham gia lớp ${mainClass.name} (${
+          mainClass.class_code
+        }) của bạn đã bị từ chối. ${
+          reason
+            ? "Lý do: " + reason
+            : "Vui lòng liên hệ giáo viên cố vấn hoặc quản trị viên để biết thêm chi tiết."
+        }`,
+        type: "CLASS_ENROLLMENT",
         sender_id: req.user.id,
         receiver_id: studentId,
-        main_class_id: mainClassId,
+        // main_class_id: mainClassId, // Loại bỏ, đã đưa vào data
+        data: {
+          studentId: studentId,
+          studentName: student.full_name, // Giả sử student đã được populate hoặc lấy thông tin trước đó
+          mainClassId: mainClassId,
+          mainClassName: mainClass.name,
+          mainClassCode: mainClass.class_code,
+          reason: reason || null,
+          status: "rejected",
+        },
+        link: "/student/class-registration", // Link tới trang đăng ký lớp để SV tìm lớp khác
       });
+    } catch (notifError) {
+      console.error(
+        "Lỗi khi tạo thông báo từ chối sinh viên vào lớp:",
+        notifError
+      );
     }
 
     res.status(200).json({
@@ -2571,6 +2673,129 @@ exports.removeStudentFromMainClass = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Lỗi máy chủ khi xóa sinh viên khỏi lớp chính",
+      error: error.message,
+    });
+  }
+};
+
+// @desc    Lấy danh sách các buổi học có thể xin nghỉ của sinh viên cho một lớp học cụ thể
+// @route   GET /api/v1/classes/teaching/:teachingClassId/schedulable-sessions-for-student
+// @access  Private (Student)
+exports.getSchedulableSessionsForStudent = async (req, res) => {
+  try {
+    const { teachingClassId } = req.params;
+    const studentId = req.user.id;
+
+    if (!mongoose.Types.ObjectId.isValid(teachingClassId)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "ID lớp học không hợp lệ." });
+    }
+
+    // 1. Lấy TeachingClass đầy đủ, bao gồm cả 'schedule'
+    const teachingClass = await TeachingClass.findById(teachingClassId)
+      .select("+schedule") // Đảm bảo lấy trường schedule
+      .lean();
+
+    if (!teachingClass) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Lớp học không tồn tại." });
+    }
+
+    const isStudentInClass = teachingClass.students.some(
+      (sId) => sId.toString() === studentId
+    );
+    if (!isStudentInClass) {
+      return res.status(403).json({
+        success: false,
+        message: "Sinh viên không thuộc lớp học này.",
+      });
+    }
+
+    // 2. Lấy các buổi học (AttendanceSession) của lớp đó
+    // const now = new Date(); // Không cần 'now' nữa nếu 'today' được khởi tạo đúng
+    const today = new Date(new Date().setHours(0, 0, 0, 0)); // Khởi tạo today một cách an toàn hơn
+
+    const sessionsQuery = AttendanceSession.find({
+      teaching_class_id: teachingClassId,
+    });
+
+    sessionsQuery
+      .populate({
+        path: "teaching_class_id",
+        select: "class_name subject_id",
+        populate: {
+          path: "subject_id",
+          select: "name code",
+        },
+      })
+      .populate("room", "room_number");
+
+    const sessions = await sessionsQuery
+      .sort({ date: 1, start_period: 1 })
+      .lean();
+
+    if (!sessions || sessions.length === 0) {
+      return res.status(200).json({ success: true, count: 0, data: [] });
+    }
+
+    // 3. Lọc và bổ sung thông tin cho các buổi học hợp lệ
+    const schedulableSessions = [];
+
+    for (let session of sessions) {
+      const sessionDate = new Date(session.date);
+
+      if (
+        (session.start_period == null || session.end_period == null) &&
+        teachingClass.schedule &&
+        teachingClass.schedule.length > 0
+      ) {
+        const sessionDayOfWeek = sessionDate.getDay();
+
+        const matchedScheduleItem = teachingClass.schedule.find(
+          (item) => item.day_of_week === sessionDayOfWeek
+        );
+
+        if (matchedScheduleItem) {
+          if (session.start_period == null) {
+            session.start_period = matchedScheduleItem.start_period;
+          }
+          if (session.end_period == null) {
+            session.end_period = matchedScheduleItem.end_period;
+          }
+        }
+      }
+
+      let canSchedule = false;
+      if (sessionDate >= today) {
+        canSchedule = true;
+      } else {
+        const attendanceLog = await AttendanceLog.findOne({
+          session_id: session._id,
+          student_id: studentId,
+          status: "present",
+        }).lean();
+        if (!attendanceLog) {
+          canSchedule = true;
+        }
+      }
+
+      if (canSchedule) {
+        schedulableSessions.push(session);
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      count: schedulableSessions.length,
+      data: schedulableSessions,
+    });
+  } catch (error) {
+    console.error("Lỗi khi lấy danh sách buổi học có thể xin nghỉ:", error);
+    res.status(500).json({
+      success: false,
+      message: "Lỗi máy chủ khi lấy danh sách buổi học.",
       error: error.message,
     });
   }

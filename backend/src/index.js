@@ -1,9 +1,9 @@
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const connectDB = require("./config/db");
 const path = require("path");
 const passport = require("passport");
-require("dotenv").config();
 const env = require("./config/env");
 const initAdmin = require("./config/initAdmin");
 
@@ -53,7 +53,7 @@ app.use("/api/absence-requests", require("./routes/absenceRequest.routes"));
 app.use("/api/facilities", require("./routes/facility.routes"));
 app.use("/api/subjects", require("./routes/subject.routes"));
 app.use("/api/teachers", require("./routes/teacher.routes.js"));
-
+app.use("/api/notifications", require("./routes/notification.routes.js"));
 // Kiểm tra kết nối
 app.get("/", (req, res) => {
   res.json({ message: "API Hệ thống Điểm danh Khuôn mặt" });

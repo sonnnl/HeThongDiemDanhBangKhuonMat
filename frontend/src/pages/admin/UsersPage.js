@@ -403,7 +403,10 @@ const UsersPage = () => {
             <TableRow>
               <TableCell>Thông tin</TableCell>
               <TableCell>Email</TableCell>
+              <TableCell>SĐT</TableCell>
+              <TableCell>Địa chỉ</TableCell>
               <TableCell>Vai trò</TableCell>
+              <TableCell>Lớp</TableCell>
               <TableCell>Trạng thái</TableCell>
               <TableCell align="right">Thao tác</TableCell>
             </TableRow>
@@ -411,13 +414,13 @@ const UsersPage = () => {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={5} align="center" sx={{ py: 3 }}>
+                <TableCell colSpan={8} align="center" sx={{ py: 3 }}>
                   <CircularProgress />
                 </TableCell>
               </TableRow>
             ) : users.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} align="center" sx={{ py: 3 }}>
+                <TableCell colSpan={8} align="center" sx={{ py: 3 }}>
                   Không có dữ liệu
                 </TableCell>
               </TableRow>
@@ -440,10 +443,17 @@ const UsersPage = () => {
                             MSSV: {user.school_info.student_id}
                           </Typography>
                         )}
+                        {user.school_info?.teacher_code && (
+                          <Typography variant="caption" color="textSecondary">
+                            MGV: {user.school_info.teacher_code}
+                          </Typography>
+                        )}
                       </Box>
                     </Box>
                   </TableCell>
                   <TableCell>{user.email}</TableCell>
+                  <TableCell>{user.contact?.phone || "-"}</TableCell>
+                  <TableCell>{user.contact?.address || "-"}</TableCell>
                   <TableCell>
                     <Chip
                       label={
@@ -456,6 +466,11 @@ const UsersPage = () => {
                       }
                       size="small"
                     />
+                  </TableCell>
+                  <TableCell>
+                    {user.role === "student"
+                      ? user.school_info?.class_id?.name || "-"
+                      : "-"}
                   </TableCell>
                   <TableCell align="center">
                     <Chip

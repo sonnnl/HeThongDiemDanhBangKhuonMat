@@ -169,8 +169,19 @@ const FaceRegistrationComponent = ({
 
     // Cleanup function
     return () => {
-      if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
+      try {
+        if (animationFrameId) {
+          cancelAnimationFrame(animationFrameId);
+        }
+        // Clear canvas if it exists
+        if (canvasRef.current) {
+          const canvas = canvasRef.current;
+          const ctx = canvas.getContext("2d");
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+      } catch (error) {
+        console.error("[FaceComponent] Error during cleanup:", error);
+        // Silently handle cleanup errors
       }
     };
   }, [

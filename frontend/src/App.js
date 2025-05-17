@@ -15,12 +15,14 @@ import GoogleRedirectPage from "./pages/GoogleRedirectPage";
 import PendingApprovalPage from "./pages/PendingApprovalPage";
 import CompleteRegistrationPage from "./pages/CompleteRegistrationPage";
 import ProfilePage from "./pages/ProfilePage";
+import NotificationsPage from "./pages/NotificationsPage";
 
 // Student Pages
 import StudentClassesPage from "./pages/student/ClassesPage";
 import StudentAttendancePage from "./pages/student/AttendancePage";
 import StudentScoresPage from "./pages/student/ScoresPage";
 import StudentTeachersPage from "./pages/student/TeachersPage";
+import MyAbsenceRequestsPage from "./pages/student/MyAbsenceRequestsPage";
 
 // Teacher Pages
 import TeacherClassesPage from "./pages/teacher/ClassesPage";
@@ -118,6 +120,7 @@ const App = () => {
       >
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="profile" element={<ProfilePage />} />
+        <Route path="notifications" element={<NotificationsPage />} />
         <Route path="register-face" element={<FaceRegistrationPage />} />
 
         {/* Student Routes */}
@@ -151,6 +154,14 @@ const App = () => {
             element={
               <ProtectedRoute roles={["student"]}>
                 <StudentTeachersPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="absence-requests"
+            element={
+              <ProtectedRoute roles={["student"]}>
+                <MyAbsenceRequestsPage />
               </ProtectedRoute>
             }
           />

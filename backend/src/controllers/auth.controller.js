@@ -238,14 +238,30 @@ exports.register = async (req, res) => {
     const user = await User.create(userData);
 
     if (user) {
-      // Gửi thông báo đến admin
+      // Gửi thông báo
       if (role === "teacher") {
-        // Gửi thông báo cho admin
-        await Notification.create({
-          title: "Đăng ký tài khoản giảng viên mới",
-          content: `Giảng viên ${full_name} (${email}) đã đăng ký và đang chờ phê duyệt.`,
-          sender_id: user._id,
-        });
+        // Gửi thông báo cho các Admin (hiện tại không set receiver_id cụ thể, Admin sẽ query theo type)
+        try {
+          await Notification.create({
+            title: "Đăng ký tài khoản giảng viên mới",
+            content: `Giảng viên ${full_name} (${email}) đã đăng ký và đang chờ phê duyệt.`,
+            type: "USER_ACCOUNT",
+            sender_id: user._id,
+            // receiver_id: null, // Để trống nếu gửi cho nhóm Admin chung
+            data: {
+              userId: user._id,
+              userName: full_name,
+              userEmail: email,
+              role_pending: "teacher",
+            },
+            link: "/admin/users?status=pending&role=teacher", // Admin có thể xem danh sách chờ duyệt
+          });
+        } catch (notifError) {
+          console.error(
+            "Lỗi khi tạo thông báo đăng ký giảng viên cho Admin:",
+            notifError
+          );
+        }
       } else if (role === "student") {
         let assigned_advisor_id = null;
         if (schoolInfoData.class_id) {
@@ -268,13 +284,30 @@ exports.register = async (req, res) => {
                 );
               }
               if (assigned_advisor_id) {
-                await Notification.create({
-                  title: "Sinh viên mới đăng ký vào lớp",
-                  content: `Sinh viên ${full_name} (${email}) đã đăng ký vào lớp ${mainClass.name} (${mainClass.class_code}) mà bạn làm cố vấn, đang chờ phê duyệt.`,
-                  sender_id: user._id,
-                  receiver_id: assigned_advisor_id,
-                  main_class_id: mainClass._id,
-                });
+                try {
+                  await Notification.create({
+                    title: "Sinh viên mới đăng ký vào lớp",
+                    content: `Sinh viên ${full_name} (${email}) đã đăng ký vào lớp ${mainClass.name} (${mainClass.class_code}) mà bạn làm cố vấn, đang chờ phê duyệt.`,
+                    type: "CLASS_ENROLLMENT",
+                    sender_id: user._id,
+                    receiver_id: assigned_advisor_id,
+                    data: {
+                      studentId: user._id,
+                      studentName: full_name,
+                      studentEmail: email,
+                      mainClassId: mainClass._id,
+                      mainClassName: mainClass.name,
+                      mainClassCode: mainClass.class_code,
+                      status: "pending_approval",
+                    },
+                    link: `/teacher/main-classes/${mainClass._id}/pending`, // GV cố vấn xem danh sách chờ của lớp
+                  });
+                } catch (notifError) {
+                  console.error(
+                    "Lỗi khi tạo thông báo đăng ký sinh viên cho GV Cố vấn:",
+                    notifError
+                  );
+                }
               }
             }
           } catch (err) {
@@ -550,14 +583,25 @@ exports.completeGoogleSignup = async (req, res) => {
           try {
             await Notification.create({
               title: "Sinh viên mới đăng ký vào lớp (Google)",
-              content: `Sinh viên ${newUser.full_name} (${newUser.email}) đã đăng ký vào lớp ${mainClass.name} mà bạn làm cố vấn (qua Google) và đang chờ phê duyệt`,
+              content: `Sinh viên ${newUser.full_name} (${newUser.email}) đã đăng ký vào lớp ${mainClass.name} (${mainClass.class_code}) mà bạn làm cố vấn (qua Google) và đang chờ phê duyệt.`,
+              type: "CLASS_ENROLLMENT",
               sender_id: newUser._id,
               receiver_id: assigned_advisor_id,
-              main_class_id: mainClass._id,
+              data: {
+                studentId: newUser._id,
+                studentName: newUser.full_name,
+                studentEmail: newUser.email,
+                mainClassId: mainClass._id,
+                mainClassName: mainClass.name,
+                mainClassCode: mainClass.class_code,
+                signupMethod: "google",
+                status: "pending_approval",
+              },
+              link: `/teacher/main-classes/${mainClass._id}/pending`, // GV cố vấn xem danh sách chờ của lớp
             });
           } catch (notifError) {
             console.error(
-              "Không thể tạo thông báo (Google Signup):",
+              "Không thể tạo thông báo (Google Signup) cho GV Cố vấn:",
               notifError
             );
           }
@@ -667,6 +711,38 @@ exports.approveUser = async (req, res) => {
       }
     }
 
+    // Tạo thông báo cho người được phê duyệt
+    try {
+      await Notification.create({
+        title: "Tài khoản của bạn đã được phê duyệt",
+        content: `Tài khoản ${user.role} (${user.email}) của bạn đã được ${
+          approver.role
+        } ${approver.full_name || approver.email} phê duyệt.`,
+        type: "USER_ACCOUNT",
+        sender_id: approver._id,
+        receiver_id: user._id,
+        data: {
+          approvedUserId: user._id,
+          approvedUserRole: user.role,
+          approverId: approver._id,
+          approverName: approver.full_name || approver.email,
+          approverRole: approver.role,
+          status: "approved",
+        },
+        link:
+          user.role === "student"
+            ? "/student/dashboard"
+            : user.role === "teacher"
+            ? "/teacher/dashboard"
+            : "/admin/dashboard", // Hoặc /profile
+      });
+    } catch (notifError) {
+      console.error(
+        "Lỗi khi tạo thông báo phê duyệt tài khoản cho người dùng:",
+        notifError
+      );
+    }
+
     res.status(200).json({
       success: true,
       message: "Phê duyệt người dùng thành công",
@@ -733,6 +809,35 @@ exports.rejectUser = async (req, res) => {
     user.approval_date = Date.now();
 
     await user.save();
+
+    // Tạo thông báo cho người bị từ chối
+    try {
+      await Notification.create({
+        title: "Tài khoản của bạn đã bị từ chối",
+        content: `Tài khoản ${user.role} (${user.email}) của bạn đã bị ${
+          rejector.role
+        } ${
+          rejector.full_name || rejector.email
+        } từ chối. Vui lòng liên hệ quản trị viên để biết thêm chi tiết.`,
+        type: "USER_ACCOUNT",
+        sender_id: rejector._id,
+        receiver_id: user._id,
+        data: {
+          rejectedUserId: user._id,
+          rejectedUserRole: user.role,
+          rejectorId: rejector._id,
+          rejectorName: rejector.full_name || rejector.email,
+          rejectorRole: rejector.role,
+          status: "rejected",
+        },
+        // link: "/contact-support", // Hoặc một trang thông tin chung
+      });
+    } catch (notifError) {
+      console.error(
+        "Lỗi khi tạo thông báo từ chối tài khoản cho người dùng:",
+        notifError
+      );
+    }
 
     res.status(200).json({
       success: true,

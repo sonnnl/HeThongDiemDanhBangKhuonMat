@@ -253,6 +253,11 @@ const AttendanceLogSchema = new Schema({
     enum: ["present", "absent"],
     default: "absent",
   },
+  absence_request_id: {
+    type: Schema.Types.ObjectId,
+    ref: "AbsenceRequest",
+    default: null,
+  },
   recognized: { type: Boolean, default: false },
   captured_face_url: String,
   recognized_confidence: Number,
@@ -290,13 +295,35 @@ StudentScoreSchema.index(
 const NotificationSchema = new Schema({
   title: { type: String, required: true },
   content: { type: String, required: true },
-  sender_id: { type: Schema.Types.ObjectId, ref: "User", required: true },
-  receiver_id: { type: Schema.Types.ObjectId, ref: "User" },
-  teaching_class_id: { type: Schema.Types.ObjectId, ref: "TeachingClass" },
-  main_class_id: { type: Schema.Types.ObjectId, ref: "MainClass" },
-  is_read: { type: Boolean, default: false },
-  created_at: { type: Date, default: Date.now },
+  sender_id: { type: Schema.Types.ObjectId, ref: "User" }, // Có thể là null nếu là thông báo hệ thống tự động
+  receiver_id: { type: Schema.Types.ObjectId, ref: "User", index: true }, // Index để query nhanh
+  type: {
+    type: String,
+    enum: [
+      "USER_ACCOUNT", // Liên quan đến tài khoản người dùng (đăng ký, duyệt, khóa)
+      "CLASS_ENROLLMENT", // Liên quan đến việc đăng ký/duyệt vào lớp (cả main class và teaching class)
+      "SCHEDULE_UPDATE", // Cập nhật lịch học, lịch thi
+      "GRADE_UPDATE", // Cập nhật điểm số
+      "ATTENDANCE_ALERT", // Cảnh báo điểm danh, kết quả điểm danh
+      "ABSENCE_REQUEST", // Liên quan đến đơn xin nghỉ phép
+      "ABSENCE_REQUEST_RESULT",
+      "GENERAL_ANNOUNCEMENT", // Thông báo chung
+      "NEW_MESSAGE", // Nếu có hệ thống chat/nhắn tin
+      "SYSTEM_NOTIFICATION", // Thông báo từ hệ thống (bảo trì, cập nhật)
+      "OTHER", // Loại khác
+    ],
+    required: true,
+    default: "OTHER",
+  },
+  data: { type: Schema.Types.Mixed }, // Để lưu trữ dữ liệu bổ sung, ví dụ: { classId: '...', className: '...', studentName: '...' }
+  link: { type: String }, // URL hoặc client-side route để điều hướng khi nhấp vào
+  is_read: { type: Boolean, default: false, index: true }, // Index để query nhanh
+  created_at: { type: Date, default: Date.now, index: true }, // Index để query nhanh và sort
 });
+
+// Thêm index cho các trường hay được query
+NotificationSchema.index({ receiver_id: 1, is_read: 1, created_at: -1 });
+NotificationSchema.index({ receiver_id: 1, type: 1, created_at: -1 });
 
 // -------------------- ABSENCE REQUESTS --------------------
 const AbsenceRequestSchema = new Schema({

@@ -78,18 +78,31 @@ export const detectFace = async (imageData) => {
     }
 
     // Kiểm tra tính hợp lệ của box
-    if (!isValidBox(detections.detection.box)) {
-      console.warn(
-        "Phát hiện khuôn mặt với box không hợp lệ:",
-        detections.detection.box
-      );
+    const box = detections.detection.box;
+    if (!box || !isValidBox(box)) {
+      console.warn("Phát hiện khuôn mặt với box không hợp lệ:", box);
+      return null;
+    }
+
+    // Kiểm tra tính hợp lệ của landmarks
+    if (!detections.landmarks || !detections.landmarks.positions) {
+      console.warn("Không có landmarks hợp lệ");
+      return null;
+    }
+
+    // Kiểm tra tính hợp lệ của descriptor
+    if (
+      !detections.descriptor ||
+      !(detections.descriptor instanceof Float32Array)
+    ) {
+      console.warn("Không có descriptor hợp lệ");
       return null;
     }
 
     return detections;
   } catch (error) {
     console.error("Error detecting face:", error);
-    return null; // Trả về null thay vì throw exception
+    return null;
   }
 };
 

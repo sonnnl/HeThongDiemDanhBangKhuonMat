@@ -1,4 +1,10 @@
-const { User, Major, Department } = require("../models/schemas");
+const {
+  User,
+  Major,
+  Department,
+  MainClass,
+  Notification,
+} = require("../models/schemas");
 const mongoose = require("mongoose");
 
 /**
@@ -264,7 +270,6 @@ exports.approveUser = async (req, res) => {
     const { id } = req.params;
     const approver = req.user;
 
-    // Tìm người dùng cần phê duyệt
     const user = await User.findById(id);
 
     if (!user) {
@@ -274,32 +279,125 @@ exports.approveUser = async (req, res) => {
       });
     }
 
-    // Kiểm tra quyền phê duyệt
-    if (user.role === "teacher" && approver.role !== "admin") {
-      return res.status(403).json({
-        success: false,
-        message: "Bạn không có quyền phê duyệt giảng viên",
+    // Nếu người dùng đã được phê duyệt trước đó, không cần làm gì thêm
+    if (user.status === "approved") {
+      return res.status(200).json({
+        success: true,
+        message: "Người dùng này đã được phê duyệt trước đó.",
+        user: {
+          _id: user._id,
+          email: user.email,
+          full_name: user.full_name,
+          role: user.role,
+          status: user.status,
+          main_class_id: user.main_class_id,
+        },
       });
     }
 
-    if (user.role === "student") {
-      // Sinh viên chỉ có thể được phê duyệt bởi giáo viên cố vấn hoặc admin
-      if (
-        approver.role !== "admin" &&
-        (!user.advisor_id ||
-          user.advisor_id.toString() !== approver._id.toString())
-      ) {
-        return res.status(403).json({
-          success: false,
-          message: "Bạn không phải là giáo viên cố vấn của sinh viên này",
-        });
-      }
+    // Route này giờ chỉ dành cho Admin
+    if (approver.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Bạn không có quyền thực hiện thao tác này.",
+      });
     }
 
-    // Cập nhật trạng thái
+    // Cập nhật trạng thái User
     user.status = "approved";
     user.approved_by = approver._id;
     user.approval_date = Date.now();
+
+    if (
+      user.role === "student" &&
+      user.school_info &&
+      user.school_info.class_id
+    ) {
+      const mainClassRegisteredId = user.school_info.class_id;
+      const mainClass = await MainClass.findById(mainClassRegisteredId);
+
+      if (mainClass) {
+        const isStudentInPendingList = mainClass.pending_students
+          .map((pId) => pId.toString())
+          .includes(user._id.toString());
+
+        if (isStudentInPendingList) {
+          mainClass.pending_students = mainClass.pending_students.filter(
+            (pendingStudentId) =>
+              pendingStudentId.toString() !== user._id.toString()
+          );
+        }
+
+        if (
+          !mainClass.students
+            .map((sId) => sId.toString())
+            .includes(user._id.toString())
+        ) {
+          mainClass.students.push(user._id);
+        }
+
+        await mainClass.save();
+        user.main_class_id = mainClass._id;
+
+        try {
+          await Notification.create({
+            title: "Tài khoản và đăng ký lớp đã được Admin phê duyệt",
+            content: `Admin ${
+              approver.full_name || approver.email
+            } đã phê duyệt tài khoản của bạn. Bạn đã được chính thức thêm vào lớp ${
+              mainClass.name
+            } (${mainClass.class_code}).`,
+            type: "CLASS_ENROLLMENT",
+            sender_id: approver._id,
+            receiver_id: user._id,
+            data: {
+              studentId: user._id,
+              studentName: user.full_name,
+              mainClassId: mainClass._id,
+              mainClassName: mainClass.name,
+              mainClassCode: mainClass.class_code,
+              adminApproverId: approver._id,
+              adminApproverName: approver.full_name || approver.email,
+              userStatus: "approved",
+              classEnrollmentStatus: "approved",
+            },
+            link: `/student/classes/main/${mainClass._id}`,
+          });
+        } catch (notifError) {
+          console.error(
+            "Lỗi tạo thông báo (Admin duyệt SV vào lớp):",
+            notifError
+          );
+        }
+      } else {
+        console.warn(
+          `Admin duyệt sinh viên ${user.email} nhưng không tìm thấy MainClass với ID ${mainClassRegisteredId} từ school_info.class_id.`
+        );
+      }
+    } else if (user.role === "teacher") {
+      // Thông báo cho giảng viên khi tài khoản được Admin duyệt
+      try {
+        await Notification.create({
+          title: "Tài khoản của bạn đã được Admin phê duyệt",
+          content: `Admin ${
+            approver.full_name || approver.email
+          } đã phê duyệt tài khoản giảng viên của bạn.`,
+          type: "USER_ACCOUNT",
+          sender_id: approver._id,
+          receiver_id: user._id,
+          data: {
+            userId: user._id,
+            userRole: user.role,
+            adminApproverId: approver._id,
+            adminApproverName: approver.full_name || approver.email,
+            userStatus: "approved",
+          },
+          link: "/teacher/dashboard",
+        });
+      } catch (notifError) {
+        console.error("Lỗi tạo thông báo (Admin duyệt GV):", notifError);
+      }
+    }
 
     await user.save();
 
@@ -312,13 +410,15 @@ exports.approveUser = async (req, res) => {
         full_name: user.full_name,
         role: user.role,
         status: user.status,
+        main_class_id: user.main_class_id,
       },
     });
   } catch (error) {
     console.error("Approve user error:", error);
     res.status(500).json({
       success: false,
-      message: "Lỗi máy chủ",
+      message: "Lỗi máy chủ khi phê duyệt người dùng",
+      error: error.message,
     });
   }
 };
@@ -333,7 +433,6 @@ exports.rejectUser = async (req, res) => {
     const { id } = req.params;
     const rejector = req.user;
 
-    // Tìm người dùng cần từ chối
     const user = await User.findById(id);
 
     if (!user) {
@@ -343,34 +442,87 @@ exports.rejectUser = async (req, res) => {
       });
     }
 
-    // Kiểm tra quyền từ chối
-    if (user.role === "teacher" && rejector.role !== "admin") {
+    // Route này giờ chỉ dành cho Admin
+    if (rejector.role !== "admin") {
       return res.status(403).json({
         success: false,
-        message: "Bạn không có quyền từ chối giảng viên",
+        message: "Bạn không có quyền thực hiện thao tác này.",
       });
     }
 
-    if (user.role === "student") {
-      // Sinh viên chỉ có thể bị từ chối bởi giáo viên cố vấn hoặc admin
-      if (
-        rejector.role !== "admin" &&
-        (!user.advisor_id ||
-          user.advisor_id.toString() !== rejector._id.toString())
-      ) {
-        return res.status(403).json({
-          success: false,
-          message: "Bạn không phải là giáo viên cố vấn của sinh viên này",
-        });
-      }
-    }
-
-    // Cập nhật trạng thái
+    const previousStatus = user.status;
     user.status = "rejected";
     user.approved_by = rejector._id;
     user.approval_date = Date.now();
 
+    // Nếu admin từ chối một sinh viên, xóa sinh viên đó khỏi danh sách chờ của lớp (nếu có)
+    if (
+      user.role === "student" &&
+      user.school_info &&
+      user.school_info.class_id
+    ) {
+      const mainClassRegisteredId = user.school_info.class_id;
+      const mainClass = await MainClass.findById(mainClassRegisteredId);
+      if (mainClass) {
+        mainClass.pending_students = mainClass.pending_students.filter(
+          (pendingStudentId) =>
+            pendingStudentId.toString() !== user._id.toString()
+        );
+        // Không thêm vào mainClass.students khi bị reject
+        // Cân nhắc gỡ user.main_class_id nếu đã từng được gán trước đó và giờ bị reject
+        if (
+          user.main_class_id &&
+          user.main_class_id.toString() === mainClass._id.toString()
+        ) {
+          user.main_class_id = null;
+        }
+        await mainClass.save();
+      }
+    }
+    // Nếu trước đó user đã là 'approved' và có main_class_id, giờ bị admin reject thì cần gỡ khỏi mainClass.students
+    if (
+      previousStatus === "approved" &&
+      user.role === "student" &&
+      user.main_class_id
+    ) {
+      const previousMainClass = await MainClass.findById(user.main_class_id);
+      if (previousMainClass) {
+        previousMainClass.students = previousMainClass.students.filter(
+          (sId) => sId.toString() !== user._id.toString()
+        );
+        await previousMainClass.save();
+        user.main_class_id = null; // Gỡ class khỏi user
+      }
+    }
+
     await user.save();
+
+    // Tạo thông báo cho người dùng bị từ chối
+    try {
+      const reasonText = req.body.reason
+        ? `Lý do: ${req.body.reason}.`
+        : "Vui lòng liên hệ quản trị viên để biết thêm chi tiết.";
+      await Notification.create({
+        title: "Tài khoản của bạn đã bị Admin từ chối",
+        content: `Admin ${
+          rejector.full_name || rejector.email
+        } đã từ chối tài khoản ${user.role} của bạn. ${reasonText}`,
+        type: "USER_ACCOUNT",
+        sender_id: rejector._id,
+        receiver_id: user._id,
+        data: {
+          userId: user._id,
+          userRole: user.role,
+          adminRejectorId: rejector._id,
+          adminRejectorName: rejector.full_name || rejector.email,
+          reason: req.body.reason || null,
+          userStatus: "rejected",
+        },
+        link: "/contact-support", // Hoặc trang profile nơi họ thấy trạng thái bị từ chối
+      });
+    } catch (notifError) {
+      console.error("Lỗi tạo thông báo (Admin từ chối tài khoản):", notifError);
+    }
 
     res.status(200).json({
       success: true,
@@ -387,7 +539,8 @@ exports.rejectUser = async (req, res) => {
     console.error("Reject user error:", error);
     res.status(500).json({
       success: false,
-      message: "Lỗi máy chủ",
+      message: "Lỗi máy chủ khi từ chối người dùng",
+      error: error.message,
     });
   }
 };
@@ -668,13 +821,30 @@ exports.registerClass = async (req, res) => {
 
     // Tạo thông báo cho giáo viên cố vấn
     if (mainClass.advisor_id) {
-      await Notification.create({
-        title: "Sinh viên đăng ký vào lớp",
-        content: `Có sinh viên mới đăng ký vào lớp ${mainClass.name} và đang chờ duyệt`,
-        sender_id: userId,
-        receiver_id: mainClass.advisor_id,
-        main_class_id: mainClassId,
-      });
+      try {
+        await Notification.create({
+          title: "Sinh viên đăng ký vào lớp",
+          content: `Sinh viên ${req.user.full_name} (${req.user.email}) đã đăng ký vào lớp ${mainClass.name} (${mainClass.class_code}) mà bạn làm cố vấn và đang chờ duyệt.`,
+          type: "CLASS_ENROLLMENT",
+          sender_id: userId, // ID của sinh viên thực hiện hành động
+          receiver_id: mainClass.advisor_id,
+          data: {
+            studentId: userId,
+            studentName: req.user.full_name,
+            studentEmail: req.user.email,
+            mainClassId: mainClassId,
+            mainClassName: mainClass.name,
+            mainClassCode: mainClass.class_code,
+            status: "pending_approval",
+          },
+          link: `/teacher/main-classes/${mainClassId}/pending`, // Link đến trang chờ duyệt của lớp
+        });
+      } catch (notifError) {
+        console.error(
+          "Lỗi tạo thông báo (SV đăng ký lớp cho GV Cố vấn):",
+          notifError
+        );
+      }
     }
 
     return res.status(200).json({
@@ -843,6 +1013,69 @@ exports.getUsersToAddToClass = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Kiểm tra xem một mã định danh (studentId, teacherCode, email) đã tồn tại chưa
+ * @route   GET /api/users/check-identifier
+ * @access  Public
+ */
+exports.checkIdentifier = async (req, res) => {
+  try {
+    const { type, value } = req.query;
+
+    if (!type || !value || value.trim() === "") {
+      return res.status(400).json({
+        success: false,
+        message: "Thiếu tham số 'type' hoặc 'value', hoặc 'value' rỗng.",
+      });
+    }
+
+    let query = {};
+    let identifierName = "";
+
+    if (type === "studentId") {
+      query["school_info.student_id"] = value;
+      identifierName = "Mã số sinh viên";
+    } else if (type === "teacherCode") {
+      query["school_info.teacher_code"] = value;
+      identifierName = "Mã giảng viên";
+    } else if (type === "email") {
+      query["email"] = value;
+      identifierName = "Email";
+    } else {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Giá trị 'type' không hợp lệ. Chỉ chấp nhận 'studentId', 'teacherCode', hoặc 'email'.",
+      });
+    }
+
+    const existingUser = await User.findOne(query);
+
+    if (existingUser) {
+      return res.status(200).json({
+        // Trả về 200 OK ngay cả khi tồn tại
+        exists: true,
+        message: `${identifierName} '${value}' này đã được sử dụng.`,
+      });
+    } else {
+      return res.status(200).json({
+        exists: false,
+        message: `${identifierName} '${value}' này có thể sử dụng.`,
+      });
+    }
+  } catch (error) {
+    console.error(
+      `Error checking identifier type '${type}', value '${value}':`,
+      error
+    );
+    res.status(500).json({
+      success: false,
+      message: `Lỗi máy chủ khi kiểm tra ${type}.`,
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   getAllUsers: exports.getAllUsers,
   getUserById: exports.getUserById,
@@ -859,4 +1092,5 @@ module.exports = {
   getPublicAdvisors: exports.getPublicAdvisors,
   getMe: exports.getMe,
   getUsersToAddToClass: exports.getUsersToAddToClass,
+  checkIdentifier: exports.checkIdentifier,
 };

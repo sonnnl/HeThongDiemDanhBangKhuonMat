@@ -25,6 +25,8 @@ import {
   Accordion,
   AccordionSummary,
   AccordionDetails,
+  FormControlLabel,
+  Checkbox,
 } from "@mui/material";
 import {
   Visibility,
@@ -89,6 +91,9 @@ const RegisterPage = () => {
   const [faceData, setFaceData] = useState(null);
   const [isFaceRegistrationComplete, setIsFaceRegistrationComplete] =
     useState(false);
+  const [enableFaceRegistration, setEnableFaceRegistration] = useState(false);
+  const [isCheckingStudentId, setIsCheckingStudentId] = useState(false);
+  const [isCheckingTeacherCode, setIsCheckingTeacherCode] = useState(false);
 
   // Tải danh sách Khoa và Lớp khi component mount
   useEffect(() => {
@@ -342,6 +347,10 @@ const RegisterPage = () => {
     if (!formData.phone) {
       errors.phone = "Số điện thoại không hợp lệ";
       valid = false;
+    } else if (!/^0\d{9}$/.test(formData.phone)) {
+      errors.phone =
+        "Số điện thoại không hợp lệ, phải có 10 chữ số bắt đầu bằng 0.";
+      valid = false;
     }
 
     if (!formData.address) {
@@ -349,26 +358,207 @@ const RegisterPage = () => {
       valid = false;
     }
 
+    // Kiểm tra lỗi từ API (nếu có) sau các validate cơ bản
+    if (
+      formErrors["school_info.student_id"] &&
+      formErrors["school_info.student_id"] !== "MSSV là bắt buộc"
+    ) {
+      errors["school_info.student_id"] = formErrors["school_info.student_id"];
+      valid = false;
+    }
+    if (
+      formErrors["school_info.teacher_code"] &&
+      formErrors["school_info.teacher_code"] !== "Mã giảng viên là bắt buộc"
+    ) {
+      errors["school_info.teacher_code"] =
+        formErrors["school_info.teacher_code"];
+      valid = false;
+    }
+
+    // Thêm kiểm tra cho đăng ký khuôn mặt nếu được chọn
+    if (
+      enableFaceRegistration &&
+      formData.role === "student" &&
+      !isFaceRegistrationComplete
+    ) {
+      enqueueSnackbar(
+        "Vui lòng hoàn tất đăng ký khuôn mặt nếu bạn đã chọn đăng ký.",
+        { variant: "warning" }
+      );
+      valid = false;
+    }
+
     setFormErrors(errors);
     return valid;
   };
 
+  // Debounce function
+  const debouncedCheck = (func, delay) => {
+    let timeout;
+    return (...args) => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => func.apply(this, args), delay);
+    };
+  };
+
+  const checkStudentIdExists = async (studentId) => {
+    if (!studentId || studentId.trim() === "") {
+      // Không reset lỗi ở đây nếu là lỗi "bắt buộc"
+      // setFormErrors((prev) => ({ ...prev, "school_info.student_id": "" }));
+      return;
+    }
+    setIsCheckingStudentId(true);
+    try {
+      const response = await axios.get(
+        `${API_URL}/users/check-identifier?type=studentId&value=${studentId}`
+      );
+      if (response.data.exists) {
+        setFormErrors((prev) => ({
+          ...prev,
+          "school_info.student_id": "Mã số sinh viên này đã tồn tại.",
+        }));
+      } else {
+        setFormErrors((prev) => ({ ...prev, "school_info.student_id": "" }));
+      }
+    } catch (error) {
+      console.error("Error checking student ID:", error);
+      // enqueueSnackbar("Lỗi khi kiểm tra MSSV", { variant: "error" });
+    } finally {
+      setIsCheckingStudentId(false);
+    }
+  };
+
+  const checkTeacherCodeExists = async (teacherCode) => {
+    if (!teacherCode || teacherCode.trim() === "") {
+      // setFormErrors((prev) => ({ ...prev, "school_info.teacher_code": "" }));
+      return;
+    }
+    setIsCheckingTeacherCode(true);
+    try {
+      const response = await axios.get(
+        `${API_URL}/users/check-identifier?type=teacherCode&value=${teacherCode}`
+      );
+      if (response.data.exists) {
+        setFormErrors((prev) => ({
+          ...prev,
+          "school_info.teacher_code": "Mã giảng viên này đã tồn tại.",
+        }));
+      } else {
+        setFormErrors((prev) => ({ ...prev, "school_info.teacher_code": "" }));
+      }
+    } catch (error) {
+      console.error("Error checking teacher code:", error);
+      // enqueueSnackbar("Lỗi khi kiểm tra mã giảng viên", { variant: "error" });
+    } finally {
+      setIsCheckingTeacherCode(false);
+    }
+  };
+
+  const debouncedStudentIdCheck = React.useCallback(
+    debouncedCheck(checkStudentIdExists, 500),
+    []
+  );
+  const debouncedTeacherCodeCheck = React.useCallback(
+    debouncedCheck(checkTeacherCodeExists, 500),
+    []
+  );
+
+  const handleStudentIdBlur = (e) => {
+    const studentId = e.target.value;
+    if (studentId.trim()) {
+      debouncedStudentIdCheck(studentId);
+    } else {
+      setFormErrors((prev) => ({
+        ...prev,
+        "school_info.student_id": "MSSV là bắt buộc",
+      }));
+    }
+  };
+
+  const handleTeacherCodeBlur = (e) => {
+    const teacherCode = e.target.value;
+    if (teacherCode.trim()) {
+      debouncedTeacherCodeCheck(teacherCode);
+    } else {
+      setFormErrors((prev) => ({
+        ...prev,
+        "school_info.teacher_code": "Mã giảng viên là bắt buộc",
+      }));
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    // Chạy validateForm trước để kiểm tra các trường rỗng và định dạng cơ bản
     if (!validateForm()) {
-      enqueueSnackbar("Vui lòng kiểm tra lại thông tin đã nhập", {
+      enqueueSnackbar("Vui lòng kiểm tra lại thông tin đã nhập.", {
         variant: "warning",
       });
       return;
     }
 
-    if (validateForm()) {
-      if (formData.role === "student" && !isFaceRegistrationComplete) {
+    // Kiểm tra trùng lặp mã một cách tường minh trước khi submit
+    let studentIdError = "";
+    let teacherCodeError = "";
+
+    if (formData.role === "student" && formData.school_info.student_id.trim()) {
+      await checkStudentIdExists(formData.school_info.student_id);
+      // Cần đọc lỗi trực tiếp từ state sau khi await vì setState là bất đồng bộ
+      // studentIdError = formErrors["school_info.student_id"]; // Cách này không an toàn
+    }
+    if (
+      formData.role === "teacher" &&
+      formData.school_info.teacher_code.trim()
+    ) {
+      await checkTeacherCodeExists(formData.school_info.teacher_code);
+      // teacherCodeError = formErrors["school_info.teacher_code"]; // Cách này không an toàn
+    }
+
+    // Sử dụng setTimeout để chờ state formErrors cập nhật từ các hàm check
+    setTimeout(async () => {
+      // Kiểm tra lại formErrors sau khi các hàm check (có thể bất đồng bộ) đã chạy
+      const currentStudentIdError = formErrors["school_info.student_id"];
+      const currentTeacherCodeError = formErrors["school_info.teacher_code"];
+
+      if (
+        currentStudentIdError &&
+        currentStudentIdError !== "MSSV là bắt buộc"
+      ) {
+        enqueueSnackbar(currentStudentIdError, { variant: "error" });
+        setIsSubmitting(false); // Reset submitting state
+        return;
+      }
+      if (
+        currentTeacherCodeError &&
+        currentTeacherCodeError !== "Mã giảng viên là bắt buộc"
+      ) {
+        enqueueSnackbar(currentTeacherCodeError, { variant: "error" });
+        setIsSubmitting(false); // Reset submitting state
+        return;
+      }
+
+      // Kiểm tra lại validateForm lần nữa sau khi các check API hoàn tất và formErrors được cập nhật
+      // Điều này để đảm bảo các lỗi "bắt buộc" không bị ghi đè bởi "" từ check API nếu mã hợp lệ
+      if (!validateForm()) {
+        enqueueSnackbar("Vui lòng kiểm tra lại thông tin đã nhập.", {
+          variant: "warning",
+        });
+        setIsSubmitting(false);
+        return;
+      }
+
+      if (
+        formData.role === "student" &&
+        enableFaceRegistration &&
+        !isFaceRegistrationComplete
+      ) {
         enqueueSnackbar("Vui lòng hoàn tất đăng ký khuôn mặt.", {
           variant: "warning",
         });
+        setIsSubmitting(false);
         return;
       }
+
       setIsSubmitting(true);
       try {
         const { confirmPassword, ...submitDataWithoutConfirm } = formData;
@@ -397,7 +587,10 @@ const RegisterPage = () => {
             address: formData.address,
           },
           faceFeatures:
-            isFaceRegistrationComplete && faceData
+            formData.role === "student" &&
+            enableFaceRegistration &&
+            isFaceRegistrationComplete &&
+            faceData
               ? { descriptors: faceData }
               : undefined,
         };
@@ -427,7 +620,7 @@ const RegisterPage = () => {
       } finally {
         setIsSubmitting(false);
       }
-    }
+    });
   };
 
   const toggleShowPassword = () => {
@@ -664,9 +857,13 @@ const RegisterPage = () => {
                       name="school_info.student_id"
                       value={formData.school_info.student_id}
                       onChange={handleChange}
+                      onBlur={handleStudentIdBlur}
                       error={!!formErrors["school_info.student_id"]}
-                      helperText={formErrors["school_info.student_id"]}
-                      disabled={isSubmitting}
+                      helperText={
+                        formErrors["school_info.student_id"] ||
+                        (isCheckingStudentId ? "Đang kiểm tra..." : "")
+                      }
+                      disabled={isSubmitting || isCheckingStudentId}
                     />
 
                     {/* Class Selection */}
@@ -756,9 +953,13 @@ const RegisterPage = () => {
                     name="school_info.teacher_code"
                     value={formData.school_info.teacher_code}
                     onChange={handleChange}
+                    onBlur={handleTeacherCodeBlur}
                     error={!!formErrors["school_info.teacher_code"]}
-                    helperText={formErrors["school_info.teacher_code"]}
-                    disabled={isSubmitting}
+                    helperText={
+                      formErrors["school_info.teacher_code"] ||
+                      (isCheckingTeacherCode ? "Đang kiểm tra..." : "")
+                    }
+                    disabled={isSubmitting || isCheckingTeacherCode}
                   />
                 )}
               </>
@@ -766,40 +967,59 @@ const RegisterPage = () => {
 
             {/* Phần đăng ký khuôn mặt - Chỉ hiển thị cho Sinh viên */}
             {formData.role === "student" && (
-              <Accordion
-                expanded={faceRegistrationExpanded}
-                onChange={() =>
-                  setFaceRegistrationExpanded(!faceRegistrationExpanded)
-                }
-                sx={{ mt: 3, mb: 1 }}
-              >
-                <AccordionSummary expandIcon={<ExpandMore />}>
-                  <Box sx={{ display: "flex", alignItems: "center" }}>
-                    <Face sx={{ mr: 1 }} />
-                    <Typography>Đăng ký khuôn mặt (khuyến khích)</Typography>
-                    {isFaceRegistrationComplete && (
-                      <Chip
-                        label="Đã hoàn tất"
-                        color="success"
-                        size="small"
-                        sx={{ ml: 2 }}
-                        icon={<Check fontSize="small" />}
+              <>
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={enableFaceRegistration}
+                      onChange={(e) =>
+                        setEnableFaceRegistration(e.target.checked)
+                      }
+                      name="enableFaceRegistration"
+                      color="primary"
+                      disabled={isSubmitting}
+                    />
+                  }
+                  label="Đăng ký khuôn mặt (khuyến nghị cho điểm danh)"
+                  sx={{ mt: 2, mb: 1 }}
+                />
+                {enableFaceRegistration && (
+                  <Accordion
+                    expanded={faceRegistrationExpanded}
+                    onChange={() =>
+                      setFaceRegistrationExpanded(!faceRegistrationExpanded)
+                    }
+                    sx={{ mt: 1, mb: 1 }}
+                  >
+                    <AccordionSummary expandIcon={<ExpandMore />}>
+                      <Box sx={{ display: "flex", alignItems: "center" }}>
+                        <Face sx={{ mr: 1 }} />
+                        <Typography>Đăng ký khuôn mặt</Typography>
+                        {isFaceRegistrationComplete && (
+                          <Chip
+                            label="Đã hoàn tất"
+                            color="success"
+                            size="small"
+                            sx={{ ml: 2 }}
+                            icon={<Check fontSize="small" />}
+                          />
+                        )}
+                      </Box>
+                    </AccordionSummary>
+                    <AccordionDetails>
+                      <Alert severity="info" sx={{ mb: 2 }}>
+                        Đăng ký khuôn mặt giúp hệ thống điểm danh tự động và
+                        tăng cường bảo mật. Cần chụp đủ {REQUIRED_IMAGES} ảnh rõ
+                        mặt, không đeo kính, không đeo khẩu trang.
+                      </Alert>
+                      <FaceRegistrationComponent
+                        onFaceDataCapture={handleFaceDataCapture}
+                        requiredImages={REQUIRED_IMAGES}
                       />
-                    )}
-                  </Box>
-                </AccordionSummary>
-                <AccordionDetails>
-                  <Alert severity="info" sx={{ mb: 2 }}>
-                    Đăng ký khuôn mặt giúp hệ thống điểm danh tự động và tăng
-                    cường bảo mật. Cần chụp đủ {REQUIRED_IMAGES} ảnh rõ mặt,
-                    không đeo kính, không đeo khẩu trang.
-                  </Alert>
-                  <FaceRegistrationComponent
-                    onFaceDataCapture={handleFaceDataCapture}
-                    requiredImages={REQUIRED_IMAGES}
-                  />
-                </AccordionDetails>
-              </Accordion>
+                    </AccordionDetails>
+                  </Accordion>
+                )}
+              </>
             )}
 
             <Button

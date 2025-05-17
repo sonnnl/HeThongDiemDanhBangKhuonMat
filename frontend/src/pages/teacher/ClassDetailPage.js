@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useSelector } from "react-redux";
+import { useSelector, useDispatch } from "react-redux";
 import { useSnackbar } from "notistack";
 import axios from "axios";
 import {
@@ -20,11 +20,13 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TablePagination,
   Chip,
   IconButton,
   Dialog,
   DialogTitle,
   DialogContent,
+  DialogContentText,
   DialogActions,
   TextField,
   FormControl,
@@ -62,12 +64,22 @@ import {
   Person,
   Room,
   Assignment as AssignmentIcon,
+  MailOutline as MailOutlineIcon,
+  Image as ImageIcon,
+  Close,
+  ZoomIn,
+  ZoomOut,
+  RestartAlt,
 } from "@mui/icons-material";
 import {
   getTeachingClassById,
   updateTeachingClass,
   checkScheduleConflicts,
 } from "../../services/api";
+import {
+  fetchAllAbsenceRequestsForReview,
+  reviewerUpdateRequestStatus,
+} from "../../redux/slices/absenceRequestSlice";
 
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
 
@@ -116,20 +128,16 @@ function TabPanel(props) {
 
 const TeacherClassDetailPage = () => {
   const { classId } = useParams();
-  const id = classId; // Đảm bảo sử dụng đúng tên param
+  const id = classId;
   const navigate = useNavigate();
   const { enqueueSnackbar } = useSnackbar();
   const { token } = useSelector((state) => state.auth);
+  const dispatch = useDispatch();
 
   // State cho dữ liệu
   const [classInfo, setClassInfo] = useState(null);
   const [students, setStudents] = useState([]);
   const [attendanceSessions, setAttendanceSessions] = useState([]);
-  const [attendanceStats, setAttendanceStats] = useState({
-    total: 0,
-    pending: 0,
-    completed: 0,
-  });
   const [isLoading, setIsLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
 
@@ -186,7 +194,68 @@ const TeacherClassDetailPage = () => {
 
   // State kiểm tra lớp học đã bắt đầu chưa - SẼ ĐƯỢC THAY THẾ
   // const [isCourseStarted, setIsCourseStarted] = useState(false);
-  const [derivedClassStatus, setDerivedClassStatus] = useState("LOADING"); // Trạng thái mới, tiếng Anh
+  const [derivedClassStatus, setDerivedClassStatus] = useState("LOADING");
+
+  // State cho Absence Requests
+  const {
+    items: absenceRequests,
+    loading: absenceRequestsLoading,
+    error: absenceRequestsError,
+    updating: absenceRequestUpdating,
+  } = useSelector((state) => state.absenceRequest.reviewRequests);
+  const [filteredAbsenceRequests, setFilteredAbsenceRequests] = useState([]);
+  const [openReviewDialog, setOpenReviewDialog] = useState(false);
+  const [selectedAbsenceRequest, setSelectedAbsenceRequest] = useState(null);
+  const [reviewAction, setReviewAction] = useState(null);
+  const [openTeacherEvidenceModal, setOpenTeacherEvidenceModal] =
+    useState(false); // State cho modal xem bằng chứng của giáo viên
+  const [teacherEvidenceImageUrl, setTeacherEvidenceImageUrl] = useState(""); // State cho URL ảnh bằng chứng của giáo viên
+
+  // Thêm vào sau các state hiện có
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [reviewNote, setReviewNote] = useState("");
+  const [imageScale, setImageScale] = useState(1);
+
+  // Thêm vào phần khai báo state
+  const [sessionStats, setSessionStats] = useState({
+    total: 0,
+    completed: 0,
+    pending: 0,
+  });
+
+  // Thêm useMemo để tính toán thống kê đơn xin nghỉ
+  const absenceStats = useMemo(() => {
+    if (!absenceRequests)
+      return {
+        total: 0,
+        pending: 0,
+        approved: 0,
+        rejected: 0,
+      };
+
+    return {
+      total: absenceRequests.length,
+      pending: absenceRequests.filter((r) => r.status === "pending").length,
+      approved: absenceRequests.filter((r) => r.status === "approved").length,
+      rejected: absenceRequests.filter((r) => r.status === "rejected").length,
+    };
+  }, [absenceRequests]);
+
+  // Thêm useEffect để tính toán sessionStats
+  useEffect(() => {
+    if (attendanceSessions) {
+      setSessionStats({
+        total: attendanceSessions.length,
+        completed: attendanceSessions.filter((s) => s.status === "completed")
+          .length,
+        pending: attendanceSessions.filter((s) => s.status !== "completed")
+          .length,
+      });
+    }
+  }, [attendanceSessions]);
 
   // Thêm hàm fetch danh sách phòng học
   const fetchRooms = async (buildingId) => {
@@ -293,19 +362,10 @@ const TeacherClassDetailPage = () => {
       // Tính toán thống kê điểm danh
       const stats = {
         total: fetchedSessions.length,
-        pending: 0,
-        completed: 0,
+        pending: fetchedSessions.filter((s) => s.status !== "completed").length,
+        completed: fetchedSessions.filter((s) => s.status === "completed")
+          .length,
       };
-
-      fetchedSessions.forEach((session) => {
-        if (session.status === "completed") {
-          stats.completed++;
-        } else {
-          stats.pending++;
-        }
-      });
-
-      setAttendanceStats(stats);
 
       // Vì API getClassStudents không trả về đầy đủ thông tin, chúng ta sẽ lấy chi tiết từng sinh viên
       if (
@@ -433,7 +493,16 @@ const TeacherClassDetailPage = () => {
 
   useEffect(() => {
     fetchClassData();
-  }, [fetchClassData]);
+    if (id) {
+      dispatch(fetchAllAbsenceRequestsForReview({ teaching_class_id: id }));
+    }
+  }, [dispatch, fetchClassData, id]);
+
+  useEffect(() => {
+    if (absenceRequests) {
+      setFilteredAbsenceRequests(absenceRequests);
+    }
+  }, [absenceRequests]);
 
   // Thay đổi tab
   const handleChangeTab = (event, newValue) => {
@@ -527,11 +596,6 @@ const TeacherClassDetailPage = () => {
 
       // Cập nhật danh sách phiên
       setAttendanceSessions((prev) => [...prev, response.data.data]);
-      setAttendanceStats((prev) => ({
-        ...prev,
-        total: prev.total + 1,
-        pending: prev.pending + 1,
-      }));
     } catch (error) {
       console.error("Lỗi khi tạo phiên điểm danh:", error);
       enqueueSnackbar(
@@ -1746,6 +1810,145 @@ const TeacherClassDetailPage = () => {
     }
   };
 
+  // Các hàm xử lý Dialog duyệt/từ chối phải được định nghĩa ở đây, trước return
+  const handleOpenReviewDialog = (request, action) => {
+    setSelectedAbsenceRequest(request);
+    setReviewAction(action);
+    setOpenReviewDialog(true);
+  };
+
+  const handleCloseReviewDialog = () => {
+    setOpenReviewDialog(false);
+    setSelectedAbsenceRequest(null);
+    setReviewAction(null);
+  };
+
+  const handleConfirmReview = async () => {
+    if (!selectedAbsenceRequest || !reviewAction) return;
+
+    // Kiểm tra nếu từ chối mà chưa có lý do
+    if (reviewAction === "rejected" && !reviewNote.trim()) {
+      enqueueSnackbar("Vui lòng nhập lý do từ chối", { variant: "warning" });
+      return;
+    }
+
+    try {
+      await dispatch(
+        reviewerUpdateRequestStatus({
+          requestId: selectedAbsenceRequest._id,
+          statusData: {
+            status: reviewAction,
+            reviewer_notes: reviewNote, // Đổi tên trường ở đây
+          },
+        })
+      ).unwrap();
+
+      // Sau khi cập nhật thành công
+      dispatch(fetchAllAbsenceRequestsForReview({ teaching_class_id: id }));
+
+      enqueueSnackbar(
+        `Đơn xin nghỉ đã được ${
+          reviewAction === "approved" ? "chấp thuận" : "từ chối"
+        }.`,
+        { variant: "success" }
+      );
+
+      // Reset form
+      setReviewNote("");
+      handleCloseReviewDialog();
+    } catch (error) {
+      console.error("Lỗi khi xử lý đơn xin nghỉ:", error);
+      enqueueSnackbar(
+        error.message ||
+          `Lỗi khi ${reviewAction === "approved" ? "duyệt" : "từ chối"} đơn.`,
+        { variant: "error" }
+      );
+    }
+  };
+
+  // Hàm xuất báo cáo đơn xin nghỉ
+  const handleExportAbsenceReport = () => {
+    try {
+      const csvData = filteredAbsenceRequests
+        .filter((request) => {
+          if (statusFilter === "all") return true;
+          return request.status === statusFilter;
+        })
+        .map((request) => ({
+          MSSV: request.student_id?.school_info?.student_id || "N/A",
+          "Họ và tên": request.student_id?.full_name || "N/A",
+          "Ngày học": request.session_id?.date
+            ? new Date(request.session_id.date).toLocaleDateString("vi-VN")
+            : "N/A",
+          "Tiết học": `${request.session_id?.start_period || "N/A"} - ${
+            request.session_id?.end_period || "N/A"
+          }`,
+          "Thời gian": `${
+            request.session_id?.start_time
+              ? new Date(request.session_id.start_time).toLocaleTimeString(
+                  "vi-VN",
+                  { hour: "2-digit", minute: "2-digit" }
+                )
+              : "N/A"
+          } - ${
+            request.session_id?.end_time
+              ? new Date(request.session_id.end_time).toLocaleTimeString(
+                  "vi-VN",
+                  { hour: "2-digit", minute: "2-digit" }
+                )
+              : "N/A"
+          }`,
+          "Lý do": request.reason || "N/A",
+          "Trạng thái":
+            request.status === "pending"
+              ? "Chờ duyệt"
+              : request.status === "approved"
+              ? "Đã duyệt"
+              : "Đã từ chối",
+          "Ngày gửi": new Date(request.created_at).toLocaleString("vi-VN"),
+          "Ngày cập nhật": request.updated_at
+            ? new Date(request.updated_at).toLocaleString("vi-VN")
+            : "N/A",
+        }));
+
+      // Tạo header cho file CSV
+      const headers = Object.keys(csvData[0]);
+      const csvContent = [
+        headers.join(","),
+        ...csvData.map((row) =>
+          headers.map((header) => `"${row[header]}"`).join(",")
+        ),
+      ].join("\n");
+
+      // Tạo và tải file
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `don_xin_nghi_${classInfo?.class_code}_${
+        new Date().toISOString().split("T")[0]
+      }.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      enqueueSnackbar("Xuất báo cáo thành công", { variant: "success" });
+    } catch (error) {
+      console.error("Lỗi khi xuất báo cáo:", error);
+      enqueueSnackbar("Lỗi khi xuất báo cáo", { variant: "error" });
+    }
+  };
+
+  // Handlers for Teacher Evidence Modal
+  const handleOpenTeacherEvidenceModal = (url) => {
+    setTeacherEvidenceImageUrl(url);
+    setOpenTeacherEvidenceModal(true);
+  };
+
+  const handleCloseTeacherEvidenceModal = () => {
+    setOpenTeacherEvidenceModal(false);
+    setTeacherEvidenceImageUrl("");
+  };
+
   return (
     <Box sx={{ p: 3, bgcolor: "grey.50", minHeight: "100vh" }}>
       {isLoading ? (
@@ -2011,6 +2214,12 @@ const TeacherClassDetailPage = () => {
                   label="Cấu hình"
                   {...a11yProps(4)}
                   icon={<Settings />}
+                  iconPosition="start"
+                />
+                <Tab
+                  label="Đơn xin nghỉ phép"
+                  {...a11yProps(5)} // Index mới cho tab
+                  icon={<MailOutlineIcon />}
                   iconPosition="start"
                 />
               </Tabs>
@@ -2417,7 +2626,7 @@ const TeacherClassDetailPage = () => {
                             }}
                           >
                             <Typography variant="h4">
-                              {attendanceStats.total}
+                              {sessionStats.total}
                             </Typography>
                             <Typography variant="body2">
                               Tổng buổi học
@@ -2435,7 +2644,7 @@ const TeacherClassDetailPage = () => {
                             }}
                           >
                             <Typography variant="h4">
-                              {attendanceStats.completed}
+                              {sessionStats.completed}
                             </Typography>
                             <Typography variant="body2">
                               Đã hoàn thành
@@ -2453,7 +2662,7 @@ const TeacherClassDetailPage = () => {
                             }}
                           >
                             <Typography variant="h4">
-                              {attendanceStats.pending}
+                              {sessionStats.pending}
                             </Typography>
                             <Typography variant="body2">
                               Chưa bắt đầu
@@ -2570,6 +2779,340 @@ const TeacherClassDetailPage = () => {
                 </Tooltip>
               </Paper>
             </TabPanel>
+
+            {/* Tab Đơn Xin Nghỉ Phép */}
+            <TabPanel value={tabValue} index={5}>
+              <Paper elevation={2} sx={{ p: 3, borderRadius: 2 }}>
+                <Typography variant="h6" gutterBottom>
+                  Danh sách đơn xin nghỉ phép
+                </Typography>
+
+                {/* Thống kê tổng quan */}
+                <Grid container spacing={2} sx={{ mb: 3 }}>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <Paper
+                      sx={{
+                        p: 2,
+                        textAlign: "center",
+                        bgcolor: "info.lighter",
+                      }}
+                    >
+                      <Typography variant="h4" color="info.dark">
+                        {absenceStats.total}
+                      </Typography>
+                      <Typography variant="body2">Tổng số đơn</Typography>
+                    </Paper>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <Paper
+                      sx={{
+                        p: 2,
+                        textAlign: "center",
+                        bgcolor: "warning.lighter",
+                      }}
+                    >
+                      <Typography variant="h4" color="warning.dark">
+                        {absenceStats.pending}
+                      </Typography>
+                      <Typography variant="body2">Chờ duyệt</Typography>
+                    </Paper>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <Paper
+                      sx={{
+                        p: 2,
+                        textAlign: "center",
+                        bgcolor: "success.lighter",
+                      }}
+                    >
+                      <Typography variant="h4" color="success.dark">
+                        {absenceStats.approved}
+                      </Typography>
+                      <Typography variant="body2">Đã duyệt</Typography>
+                    </Paper>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <Paper
+                      sx={{
+                        p: 2,
+                        textAlign: "center",
+                        bgcolor: "error.lighter",
+                      }}
+                    >
+                      <Typography variant="h4" color="error.dark">
+                        {absenceStats.rejected}
+                      </Typography>
+                      <Typography variant="body2">Đã từ chối</Typography>
+                    </Paper>
+                  </Grid>
+                </Grid>
+
+                {/* Thanh công cụ */}
+                <Box sx={{ mb: 2, display: "flex", gap: 2, flexWrap: "wrap" }}>
+                  <FormControl size="small" sx={{ minWidth: 120 }}>
+                    <InputLabel>Trạng thái</InputLabel>
+                    <Select
+                      value={statusFilter}
+                      onChange={(e) => setStatusFilter(e.target.value)}
+                      label="Trạng thái"
+                    >
+                      <MenuItem value="all">Tất cả</MenuItem>
+                      <MenuItem value="pending">Chờ duyệt</MenuItem>
+                      <MenuItem value="approved">Đã duyệt</MenuItem>
+                      <MenuItem value="rejected">Đã từ chối</MenuItem>
+                    </Select>
+                  </FormControl>
+
+                  <TextField
+                    size="small"
+                    placeholder="Tìm kiếm theo tên, MSSV..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    sx={{ flexGrow: 1 }}
+                  />
+
+                  <Button
+                    variant="outlined"
+                    startIcon={<Download />}
+                    onClick={handleExportAbsenceReport}
+                  >
+                    Xuất báo cáo
+                  </Button>
+                </Box>
+
+                {absenceRequestsLoading && <CircularProgress />}
+                {absenceRequestsError && (
+                  <Alert severity="error">{absenceRequestsError}</Alert>
+                )}
+                {!absenceRequestsLoading &&
+                  !absenceRequestsError &&
+                  filteredAbsenceRequests.length === 0 && (
+                    <Alert severity="info">
+                      Chưa có đơn xin nghỉ phép nào cho lớp này.
+                    </Alert>
+                  )}
+                {!absenceRequestsLoading &&
+                  !absenceRequestsError &&
+                  filteredAbsenceRequests.length > 0 && (
+                    <>
+                      <TableContainer component={Paper} variant="outlined">
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow sx={{ bgcolor: "grey.100" }}>
+                              <TableCell>Sinh viên</TableCell>
+                              <TableCell>Buổi học</TableCell>
+                              <TableCell>Thời gian</TableCell>
+                              <TableCell>Lý do</TableCell>
+                              <TableCell>Trạng thái</TableCell>
+                              <TableCell align="right">Hành động</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {filteredAbsenceRequests
+                              .filter((request) => {
+                                if (statusFilter === "all") return true;
+                                return request.status === statusFilter;
+                              })
+                              .filter(
+                                (request) =>
+                                  request.student_id?.full_name
+                                    ?.toLowerCase()
+                                    .includes(searchTerm.toLowerCase()) ||
+                                  request.student_id?.school_info?.student_id
+                                    ?.toLowerCase()
+                                    .includes(searchTerm.toLowerCase())
+                              )
+                              .slice(
+                                page * rowsPerPage,
+                                (page + 1) * rowsPerPage
+                              )
+                              .map((request) => (
+                                <TableRow key={request._id}>
+                                  <TableCell>
+                                    <Typography variant="body2">
+                                      {request.student_id?.full_name || "N/A"}
+                                    </Typography>
+                                    <Typography
+                                      variant="caption"
+                                      color="textSecondary"
+                                    >
+                                      MSSV:{" "}
+                                      {request.student_id?.school_info
+                                        ?.student_id || "N/A"}
+                                    </Typography>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Typography variant="body2">
+                                      {request.session_id?.date
+                                        ? new Date(
+                                            request.session_id.date
+                                          ).toLocaleDateString("vi-VN")
+                                        : "N/A"}
+                                    </Typography>
+                                    <Typography
+                                      variant="caption"
+                                      color="textSecondary"
+                                    >
+                                      Tiết: {request.session_id?.start_period} -{" "}
+                                      {request.session_id?.end_period}
+                                      <br />
+                                      {request.session_id?.start_time &&
+                                      request.session_id?.end_time
+                                        ? `${new Date(
+                                            request.session_id.start_time
+                                          ).toLocaleTimeString("vi-VN", {
+                                            hour: "2-digit",
+                                            minute: "2-digit",
+                                          })} - ${new Date(
+                                            request.session_id.end_time
+                                          ).toLocaleTimeString("vi-VN", {
+                                            hour: "2-digit",
+                                            minute: "2-digit",
+                                          })}`
+                                        : ""}
+                                    </Typography>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Typography variant="body2">
+                                      Gửi:{" "}
+                                      {new Date(
+                                        request.created_at
+                                      ).toLocaleString("vi-VN")}
+                                    </Typography>
+                                    {request.updated_at &&
+                                      request.updated_at !==
+                                        request.created_at && (
+                                        <Typography
+                                          variant="caption"
+                                          color="textSecondary"
+                                        >
+                                          Cập nhật:{" "}
+                                          {new Date(
+                                            request.updated_at
+                                          ).toLocaleString("vi-VN")}
+                                        </Typography>
+                                      )}
+                                  </TableCell>
+                                  <TableCell
+                                    sx={{
+                                      maxWidth: 200,
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    <Tooltip title={request.reason}>
+                                      <Typography variant="body2">
+                                        {request.reason}
+                                      </Typography>
+                                    </Tooltip>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Chip
+                                      label={
+                                        request.status === "pending"
+                                          ? "Chờ duyệt"
+                                          : request.status === "approved"
+                                          ? "Đã duyệt"
+                                          : "Đã từ chối"
+                                      }
+                                      color={
+                                        request.status === "pending"
+                                          ? "warning"
+                                          : request.status === "approved"
+                                          ? "success"
+                                          : "error"
+                                      }
+                                      size="small"
+                                    />
+                                  </TableCell>
+                                  <TableCell align="right">
+                                    <Box
+                                      sx={{
+                                        display: "flex",
+                                        gap: 1,
+                                        justifyContent: "flex-end",
+                                      }}
+                                    >
+                                      {request.status === "pending" && (
+                                        <>
+                                          <Tooltip title="Duyệt đơn">
+                                            <Button
+                                              size="small"
+                                              variant="contained"
+                                              color="success"
+                                              onClick={() =>
+                                                handleOpenReviewDialog(
+                                                  request,
+                                                  "approved"
+                                                )
+                                              }
+                                              disabled={absenceRequestUpdating}
+                                            >
+                                              Duyệt
+                                            </Button>
+                                          </Tooltip>
+                                          <Tooltip title="Từ chối đơn">
+                                            <Button
+                                              size="small"
+                                              variant="contained"
+                                              color="error"
+                                              onClick={() =>
+                                                handleOpenReviewDialog(
+                                                  request,
+                                                  "rejected"
+                                                )
+                                              }
+                                              disabled={absenceRequestUpdating}
+                                            >
+                                              Từ chối
+                                            </Button>
+                                          </Tooltip>
+                                        </>
+                                      )}
+                                      {request.evidence_url && (
+                                        <Tooltip title="Xem bằng chứng">
+                                          <IconButton
+                                            size="small"
+                                            onClick={() =>
+                                              handleOpenTeacherEvidenceModal(
+                                                request.evidence_url
+                                              )
+                                            }
+                                          >
+                                            <ImageIcon />
+                                          </IconButton>
+                                        </Tooltip>
+                                      )}
+                                    </Box>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                      <TablePagination
+                        component="div"
+                        count={filteredAbsenceRequests.length}
+                        page={page}
+                        onPageChange={(e, newPage) => setPage(newPage)}
+                        rowsPerPage={rowsPerPage}
+                        onRowsPerPageChange={(e) => {
+                          setRowsPerPage(parseInt(e.target.value, 10));
+                          setPage(0);
+                        }}
+                        labelRowsPerPage="Số dòng mỗi trang"
+                        labelDisplayedRows={({ from, to, count }) =>
+                          `${from}-${to} trên ${
+                            count !== -1 ? count : `hơn ${to}`
+                          }`
+                        }
+                      />
+                    </>
+                  )}
+              </Paper>
+            </TabPanel>
+            {/* Kết thúc Tab Đơn Xin Nghỉ Phép */}
           </Box>
 
           {/* Dialog thêm sinh viên */}
@@ -3346,6 +3889,200 @@ const TeacherClassDetailPage = () => {
                 {isSavingNotes ? <CircularProgress size={20} /> : "Lưu ghi chú"}
               </Button>
             </DialogActions>
+          </Dialog>
+
+          {/* Dialog xác nhận duyệt/từ chối đơn */}
+          <Dialog
+            open={openReviewDialog}
+            onClose={handleCloseReviewDialog}
+            maxWidth="sm"
+            fullWidth
+          >
+            <DialogTitle>
+              {reviewAction === "approved"
+                ? "Duyệt đơn xin nghỉ"
+                : "Từ chối đơn xin nghỉ"}
+              <IconButton
+                onClick={handleCloseReviewDialog}
+                sx={{ position: "absolute", right: 8, top: 8 }}
+              >
+                <Close />
+              </IconButton>
+            </DialogTitle>
+            <DialogContent>
+              <Box sx={{ mt: 2 }}>
+                <Typography variant="subtitle1" gutterBottom>
+                  Thông tin đơn xin nghỉ:
+                </Typography>
+                <Grid container spacing={2}>
+                  <Grid item xs={12}>
+                    <Typography variant="body2">
+                      <strong>Sinh viên:</strong>{" "}
+                      {selectedAbsenceRequest?.student_id?.full_name}
+                      <br />
+                      <strong>MSSV:</strong>{" "}
+                      {
+                        selectedAbsenceRequest?.student_id?.school_info
+                          ?.student_id
+                      }
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Typography variant="body2">
+                      <strong>Buổi học:</strong>{" "}
+                      {selectedAbsenceRequest?.session_id?.date
+                        ? new Date(
+                            selectedAbsenceRequest.session_id.date
+                          ).toLocaleDateString("vi-VN")
+                        : "N/A"}
+                      <br />
+                      <strong>Tiết:</strong>{" "}
+                      {selectedAbsenceRequest?.session_id?.start_period} -{" "}
+                      {selectedAbsenceRequest?.session_id?.end_period}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Typography variant="body2">
+                      <strong>Lý do xin nghỉ:</strong>
+                      <br />
+                      {selectedAbsenceRequest?.reason}
+                    </Typography>
+                  </Grid>
+                  {reviewAction === "rejected" && (
+                    <Grid item xs={12}>
+                      <TextField
+                        fullWidth
+                        label="Lý do từ chối"
+                        multiline
+                        rows={3}
+                        value={reviewNote}
+                        onChange={(e) => setReviewNote(e.target.value)}
+                        required
+                        error={reviewAction === "rejected" && !reviewNote}
+                        helperText={
+                          reviewAction === "rejected" && !reviewNote
+                            ? "Vui lòng nhập lý do từ chối"
+                            : ""
+                        }
+                      />
+                    </Grid>
+                  )}
+                </Grid>
+              </Box>
+            </DialogContent>
+            <DialogActions sx={{ p: 2, justifyContent: "flex-end" }}>
+              <Button
+                onClick={handleCloseReviewDialog}
+                disabled={absenceRequestUpdating}
+              >
+                Hủy
+              </Button>
+              <Button
+                onClick={handleConfirmReview}
+                color={reviewAction === "approved" ? "success" : "error"}
+                variant="contained"
+                disabled={
+                  absenceRequestUpdating ||
+                  (reviewAction === "rejected" && !reviewNote)
+                }
+              >
+                {absenceRequestUpdating ? (
+                  <CircularProgress size={20} />
+                ) : reviewAction === "approved" ? (
+                  "Duyệt đơn"
+                ) : (
+                  "Từ chối đơn"
+                )}
+              </Button>
+            </DialogActions>
+          </Dialog>
+
+          {/* Teacher Evidence View Modal */}
+          <Dialog
+            open={openTeacherEvidenceModal}
+            onClose={handleCloseTeacherEvidenceModal}
+            maxWidth="md"
+            fullWidth
+          >
+            <DialogTitle>
+              Bằng Chứng Xin Nghỉ
+              <IconButton
+                onClick={handleCloseTeacherEvidenceModal}
+                sx={{ position: "absolute", right: 8, top: 8 }}
+              >
+                <Close />
+              </IconButton>
+            </DialogTitle>
+            <DialogContent>
+              <Box
+                sx={{
+                  position: "relative",
+                  overflow: "auto",
+                  maxHeight: "80vh",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                }}
+              >
+                {teacherEvidenceImageUrl ? (
+                  <>
+                    <img
+                      src={teacherEvidenceImageUrl}
+                      alt="Bằng chứng"
+                      style={{
+                        maxWidth: "100%",
+                        transform: `scale(${imageScale})`,
+                        transformOrigin: "0 0",
+                        transition: "transform 0.3s",
+                      }}
+                    />
+                    <Box
+                      sx={{
+                        mt: 2,
+                        display: "flex",
+                        gap: 2,
+                        alignItems: "center",
+                      }}
+                    >
+                      <IconButton
+                        onClick={() =>
+                          setImageScale((s) => Math.max(1, s - 0.1))
+                        }
+                      >
+                        <ZoomOut />
+                      </IconButton>
+                      <Typography variant="body2">
+                        {Math.round(imageScale * 100)}%
+                      </Typography>
+                      <IconButton onClick={() => setImageScale((s) => s + 0.1)}>
+                        <ZoomIn />
+                      </IconButton>
+                      <IconButton onClick={() => setImageScale(1)}>
+                        <RestartAlt />
+                      </IconButton>
+                      <Tooltip title="Tải xuống">
+                        <IconButton
+                          onClick={() => {
+                            const link = document.createElement("a");
+                            link.href = teacherEvidenceImageUrl;
+                            link.download = `bang_chung_${new Date().getTime()}.jpg`;
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                          }}
+                        >
+                          <Download />
+                        </IconButton>
+                      </Tooltip>
+                    </Box>
+                  </>
+                ) : (
+                  <Alert severity="info" sx={{ width: "100%" }}>
+                    Không có hình ảnh bằng chứng.
+                  </Alert>
+                )}
+              </Box>
+            </DialogContent>
           </Dialog>
         </>
       )}

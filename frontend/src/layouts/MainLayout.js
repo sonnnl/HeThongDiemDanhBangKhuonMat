@@ -19,6 +19,7 @@ import {
   Container,
   useMediaQuery,
   useTheme,
+  Tooltip,
 } from "@mui/material";
 import {
   Menu as MenuIcon,
@@ -36,8 +37,11 @@ import {
   Place,
   Domain,
   Groups,
+  Notifications as NotificationsIcon,
+  AssignmentTurnedIn as AssignmentTurnedInIcon,
 } from "@mui/icons-material";
 import { logout } from "../redux/slices/authSlice";
+import NotificationBell from "../components/common/NotificationBell";
 
 const MainLayout = () => {
   const dispatch = useDispatch();
@@ -83,6 +87,12 @@ const MainLayout = () => {
         roles: ["admin", "teacher", "student"],
       },
       {
+        text: "Thông báo",
+        icon: <NotificationsIcon />,
+        path: "/notifications",
+        roles: ["admin", "teacher", "student"],
+      },
+      {
         text: "Hồ sơ cá nhân",
         icon: <Person />,
         path: "/profile",
@@ -115,6 +125,12 @@ const MainLayout = () => {
           text: "Thông tin Giảng viên",
           icon: <Groups />,
           path: "/student/teachers",
+          roles: ["student"],
+        },
+        {
+          text: "Đơn xin nghỉ phép",
+          icon: <AssignmentTurnedInIcon />,
+          path: "/student/absence-requests",
           roles: ["student"],
         }
       );
@@ -277,31 +293,34 @@ const MainLayout = () => {
             Hệ Thống Điểm Danh Bằng Khuôn Mặt
           </Typography>
           <Box sx={{ flexGrow: 1 }} />
+          <NotificationBell />
           <Box sx={{ display: "flex", alignItems: "center" }}>
             <Typography variant="body1" sx={{ mr: 2 }}>
               {user?.full_name}
             </Typography>
-            <IconButton
-              size="large"
-              edge="end"
-              aria-label="account of current user"
-              aria-controls={menuId}
-              aria-haspopup="true"
-              onClick={handleProfileMenuOpen}
-              color="inherit"
-            >
-              {user?.avatar_url ? (
-                <Avatar
-                  alt={user?.full_name}
-                  src={user?.avatar_url}
-                  sx={{ width: 32, height: 32 }}
-                />
-              ) : (
-                <Avatar sx={{ width: 32, height: 32 }}>
-                  {user?.full_name?.charAt(0) || "U"}
-                </Avatar>
-              )}
-            </IconButton>
+            <Tooltip title="Tài khoản">
+              <IconButton
+                size="large"
+                edge="end"
+                aria-label="account of current user"
+                aria-controls={menuId}
+                aria-haspopup="true"
+                onClick={handleProfileMenuOpen}
+                color="inherit"
+              >
+                {user?.avatar_url ? (
+                  <Avatar
+                    alt={user?.full_name}
+                    src={user?.avatar_url}
+                    sx={{ width: 32, height: 32 }}
+                  />
+                ) : (
+                  <Avatar sx={{ width: 32, height: 32 }}>
+                    {user?.full_name?.charAt(0) || "U"}
+                  </Avatar>
+                )}
+              </IconButton>
+            </Tooltip>
           </Box>
         </Toolbar>
       </AppBar>

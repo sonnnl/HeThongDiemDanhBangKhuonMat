@@ -1,7 +1,7 @@
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
 import axios from "axios";
 
-const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+const API_URL = process.env.REACT_APP_API_URL;
 
 // Thunks
 export const saveFaceFeatures = createAsyncThunk(
@@ -92,15 +92,35 @@ export const verifyAttendance = createAsyncThunk(
 export const manualAttendance = createAsyncThunk(
   "faceRecognition/manualAttendance",
   async (
-    { sessionId, studentId, status, note },
+    {
+      sessionId,
+      studentId,
+      status,
+      note,
+      recognized,
+      imageBase64,
+      confidence,
+      absence_request_id,
+    },
     { getState, rejectWithValue }
   ) => {
     try {
       const { token } = getState().auth;
 
+      const payload = {
+        student_id: studentId,
+        status,
+        note,
+        absence_request_id,
+      };
+
+      if (recognized !== undefined) payload.recognized = recognized;
+      if (imageBase64) payload.imageBase64 = imageBase64;
+      if (confidence !== undefined) payload.confidence = confidence;
+
       const response = await axios.post(
-        `${API_URL}/face-recognition/manual-attendance`,
-        { sessionId, studentId, status, note },
+        `${API_URL}/attendance/logs/${sessionId}`,
+        payload,
         {
           headers: {
             Authorization: `Bearer ${token}`,

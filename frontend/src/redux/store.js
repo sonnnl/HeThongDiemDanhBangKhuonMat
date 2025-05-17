@@ -7,6 +7,7 @@ import authReducer from "./slices/authSlice";
 import adminReducer from "./slices/adminSlice";
 import facilityReducer from "./slices/facilitySlice";
 import faceRecognitionReducer from "./slices/faceRecognitionSlice";
+import absenceRequestReducer from "./slices/absenceRequestSlice";
 
 const persistConfig = {
   key: "root",
@@ -19,6 +20,7 @@ const rootReducer = combineReducers({
   admin: adminReducer,
   facility: facilityReducer,
   faceRecognition: faceRecognitionReducer,
+  absenceRequest: absenceRequestReducer,
 });
 
 const persistedReducer = persistReducer(persistConfig, rootReducer);

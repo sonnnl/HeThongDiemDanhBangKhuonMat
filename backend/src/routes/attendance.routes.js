@@ -80,4 +80,13 @@ router.post(
   attendanceController.calculateAttendanceScores
 );
 
+// @route   POST /api/attendance/logs/:sessionId
+// @desc    Tạo log điểm danh mới
+router.post(
+  "/logs/:sessionId",
+  protect,
+  authorize("teacher", "admin"),
+  attendanceController.createAttendanceLog
+);
+
 module.exports = router;

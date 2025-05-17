@@ -580,11 +580,19 @@ const ScoresPage = () => {
                     variant="outlined"
                     size="small"
                     startIcon={<Timeline />}
-                    onClick={() =>
-                      navigate(
-                        `/student/attendance/${score.teaching_class_id?._id}`
-                      )
-                    }
+                    onClick={() => {
+                      // Sử dụng trực tiếp score.teaching_class_id vì nó đã là string ID từ backend
+                      const teachingClassId = score.teaching_class_id;
+                      if (teachingClassId) {
+                        navigate(`/student/attendance/${teachingClassId}`);
+                      } else {
+                        console.error(
+                          "Không tìm thấy ID lớp học (teaching_class_id) trong score object:",
+                          score
+                        );
+                        // TODO: Có thể thêm thông báo cho người dùng ở đây bằng enqueueSnackbar nếu cần
+                      }
+                    }}
                   >
                     Xem Log
                   </Button>

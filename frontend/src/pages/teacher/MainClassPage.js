@@ -1796,8 +1796,27 @@ const TeacherMainClassPage = () => {
                     <CircularProgress />
                   </Box>
                 ) : filteredPendingStudents.length > 0 ? (
-                  <TableContainer component={Paper}>
-                    <Table sx={{ minWidth: 650 }} aria-label="simple table">
+                  <TableContainer
+                    component={Paper}
+                    sx={{
+                      overflowX: "auto", // Đảm bảo overflowX được áp dụng
+                      boxShadow: 1,
+                      "&::-webkit-scrollbar": {
+                        // Tùy chỉnh thanh cuộn cho Webkit browsers (Chrome, Safari)
+                        height: "8px",
+                      },
+                      "&::-webkit-scrollbar-thumb": {
+                        backgroundColor: "rgba(0,0,0,0.2)",
+                        borderRadius: "4px",
+                      },
+                    }}
+                  >
+                    <Table
+                      sx={{ minWidth: 1200 }}
+                      aria-label="pending students table"
+                    >
+                      {" "}
+                      {/* Tăng mạnh minWidth để dễ test */}
                       <TableHead>
                         <TableRow>
                           <TableCell sx={{ fontWeight: "bold", width: "5%" }}>
@@ -1809,7 +1828,12 @@ const TeacherMainClassPage = () => {
                           </TableCell>
                           <TableCell>Email</TableCell>
                           <TableCell>MSSV</TableCell>
-                          <TableCell>Lớp</TableCell>
+                          <TableCell>Lớp ĐK</TableCell>{" "}
+                          {/* Đổi tên cột lớp cho rõ */}
+                          <TableCell>Ngành ĐK</TableCell>
+                          <TableCell>Khoa ĐK</TableCell>
+                          <TableCell>Ngày ĐK</TableCell>
+                          <TableCell>SĐT</TableCell>
                           <TableCell align="center">Hành động</TableCell>
                         </TableRow>
                       </TableHead>
@@ -1862,45 +1886,100 @@ const TeacherMainClassPage = () => {
                                 )}
                             </TableCell>
                             <TableCell>
-                              {student.school_info?.class || (
+                              {student.school_info?.class_id?.name || ( // Hiển thị tên lớp sinh viên đã chọn khi ĐK
                                 <Typography
                                   variant="body2"
                                   color="text.secondary"
                                   fontStyle="italic"
                                 >
-                                  Chưa cập nhật
+                                  Chưa có
+                                </Typography>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              {student.school_info?.class_id?.major_id
+                                ?.name || (
+                                <Typography
+                                  variant="body2"
+                                  color="text.secondary"
+                                  fontStyle="italic"
+                                >
+                                  N/A
+                                </Typography>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              {student.school_info?.class_id?.major_id
+                                ?.department_id?.name || (
+                                <Typography
+                                  variant="body2"
+                                  color="text.secondary"
+                                  fontStyle="italic"
+                                >
+                                  N/A
+                                </Typography>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              {student.created_at
+                                ? new Date(
+                                    student.created_at
+                                  ).toLocaleDateString("vi-VN")
+                                : "N/A"}
+                            </TableCell>
+                            <TableCell>
+                              {student.contact?.phone || (
+                                <Typography
+                                  variant="body2"
+                                  color="text.secondary"
+                                  fontStyle="italic"
+                                >
+                                  N/A
                                 </Typography>
                               )}
                             </TableCell>
                             <TableCell align="center">
-                              <Tooltip title="Xem chi tiết">
-                                <IconButton
-                                  onClick={() => {
-                                    setSelectedStudent(student);
-                                    setOpenStudentDetail(true);
-                                  }}
-                                >
-                                  <InfoIcon />
-                                </IconButton>
-                              </Tooltip>
-                              <Tooltip title="Duyệt sinh viên">
-                                <IconButton
-                                  color="primary"
-                                  onClick={() =>
-                                    handleApproveStudent(student._id)
-                                  }
-                                >
-                                  <CheckIcon />
-                                </IconButton>
-                              </Tooltip>
-                              <Tooltip title="Từ chối">
-                                <IconButton
-                                  color="error"
-                                  onClick={() => openRejectDialog(student._id)}
-                                >
-                                  <ClearIcon />
-                                </IconButton>
-                              </Tooltip>
+                              <Box
+                                sx={{
+                                  display: "flex",
+                                  justifyContent: "center",
+                                  alignItems: "center",
+                                }}
+                              >
+                                <Tooltip title="Xem chi tiết">
+                                  <IconButton
+                                    size="small" // Thêm size small để tiết kiệm không gian
+                                    onClick={() => {
+                                      setSelectedStudent(student);
+                                      setOpenStudentDetail(true);
+                                    }}
+                                  >
+                                    <InfoIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                                <Tooltip title="Duyệt sinh viên">
+                                  <IconButton
+                                    size="small" // Thêm size small
+                                    color="primary"
+                                    onClick={() =>
+                                      handleApproveStudent(student._id)
+                                    }
+                                  >
+                                    <CheckIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                                <Tooltip title="Từ chối">
+                                  <IconButton
+                                    size="small" // Thêm size small
+                                    color="error"
+                                    onClick={() =>
+                                      openRejectDialog(student._id)
+                                    }
+                                  >
+                                    <ClearIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              </Box>
                             </TableCell>
                           </TableRow>
                         ))}
@@ -1979,8 +2058,26 @@ const TeacherMainClassPage = () => {
                   </Box>
                 ) : filteredApprovedStudents.length > 0 ? (
                   <>
-                    <TableContainer component={Paper} sx={{ boxShadow: 2 }}>
-                      <Table sx={{ minWidth: 650 }} aria-label="simple table">
+                    <TableContainer
+                      component={Paper}
+                      sx={{
+                        overflowX: "auto", // Đảm bảo overflowX được áp dụng
+                        boxShadow: 2,
+                        "&::-webkit-scrollbar": {
+                          height: "8px",
+                        },
+                        "&::-webkit-scrollbar-thumb": {
+                          backgroundColor: "rgba(0,0,0,0.2)",
+                          borderRadius: "4px",
+                        },
+                      }}
+                    >
+                      <Table
+                        sx={{ minWidth: 1000 }}
+                        aria-label="approved students table"
+                      >
+                        {" "}
+                        {/* Tăng minWidth */}
                         <TableHead>
                           <TableRow sx={{ bgcolor: "primary.lighter" }}>
                             <TableCell sx={{ fontWeight: "bold", width: "5%" }}>

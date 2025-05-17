@@ -208,4 +208,12 @@ router.get(
   classController.getClassAttendanceStats
 );
 
+// API mới: Lấy các buổi học có thể xin nghỉ của sinh viên cho một lớp học cụ thể
+router.get(
+  "/teaching/:teachingClassId/schedulable-sessions-for-student",
+  protect,
+  authorize(["student"]), // Chỉ sinh viên mới có quyền gọi API này cho chính mình
+  classController.getSchedulableSessionsForStudent
+);
+
 module.exports = router;

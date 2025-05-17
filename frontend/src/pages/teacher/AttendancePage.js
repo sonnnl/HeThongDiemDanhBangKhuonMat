@@ -40,20 +40,13 @@ import {
   Alert,
   AlertTitle,
   Tooltip,
-  Stepper,
-  Step,
-  StepLabel,
-  StepContent,
 } from "@mui/material";
 import {
   CameraAlt,
   Check,
   Close,
-  Edit,
   Refresh,
   Save,
-  VerifiedUser,
-  HourglassEmpty,
   ArrowBack,
   Info,
   VideocamOff,
@@ -61,6 +54,9 @@ import {
   StopCircleOutlined,
   Visibility,
   VisibilityOff,
+  CheckCircle,
+  Cancel,
+  PersonAdd,
 } from "@mui/icons-material";
 import {
   setModelLoaded as setFaceRecModelLoaded, // Rename to avoid conflict
@@ -72,6 +68,11 @@ import {
   verifyAttendance,
   manualAttendance,
 } from "../../redux/slices/faceRecognitionSlice"; // Fixed relative import path
+import { loadModels, detectFace, getFaceDistance } from "../../utils/faceUtils";
+import {
+  fetchAllAbsenceRequestsForReview,
+  reviewerUpdateRequestStatus,
+} from "../../redux/slices/absenceRequestSlice"; // Thêm import
 
 // Lazy load Webcam
 const Webcam = lazy(() => import("react-webcam"));
@@ -163,6 +164,30 @@ const extractStudentDescriptors = (student) => {
   return descriptors.filter((d) => d.length === 128); // Final validation
 };
 
+// Thêm hàm kiểm tra box hợp lệ
+const isValidBox = (box) => {
+  if (!box) return false;
+
+  const { x, y, width, height } = box;
+
+  // Kiểm tra từng thuộc tính
+  if (x === null || y === null || width === null || height === null)
+    return false;
+  if (
+    typeof x !== "number" ||
+    typeof y !== "number" ||
+    typeof width !== "number" ||
+    typeof height !== "number"
+  )
+    return false;
+  if (isNaN(x) || isNaN(y) || isNaN(width) || isNaN(height)) return false;
+  if (width <= 0 || height <= 0) return false;
+
+  return true;
+};
+
+// Component đã được xóa vì chức năng trùng lặp
+
 // --- React Component ---
 
 const AttendancePage = () => {
@@ -176,6 +201,12 @@ const AttendancePage = () => {
   const canvasRef = useRef(null);
   const autoModeIntervalRef = useRef(null);
   const landmarkIntervalRef = useRef(null);
+  const animationFrameRef = useRef(null);
+
+  // Thêm useRef để lưu timeout ID
+  const refreshTimeoutRef = useRef(null);
+  const lastRefreshTimeRef = useRef(0);
+  const REFRESH_COOLDOWN = 3000; // 3 giây cooldown giữa các lần refresh
 
   // Component State
   const [isLoading, setIsLoading] = useState(true);
@@ -187,28 +218,184 @@ const AttendancePage = () => {
   const [manualDialogOpen, setManualDialogOpen] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [manualAttendanceData, setManualAttendanceData] = useState({
+    status: "present",
     note: "",
   });
-  const [componentError, setComponentError] = useState(null); // For non-API errors
+  const [componentError, setComponentError] = useState(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [localAbsenceRequests, setLocalAbsenceRequests] = useState([]);
+
+  // State cho dialog xem chi tiết đơn xin nghỉ
+  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
+  const [selectedRequest, setSelectedRequest] = useState(null);
 
   // Redux State
   const { token } = useSelector((state) => state.auth);
-
-  // Access faceRecognition state directly
   const {
     isModelLoaded,
     isCameraReady,
     detectedFaces,
     recognizedStudents,
-    classStudents, // Assuming slice holds the relevant class students
-    isProcessing,
-    error: faceRecError, // Get error state
+    classStudents,
+    error: faceRecError,
   } = useSelector((state) => state.faceRecognition);
+  const {
+    items: absenceRequests,
+    loading: absenceRequestsLoading,
+    error: absenceRequestsError,
+  } = useSelector((state) => state.absenceRequest.reviewRequests);
+
+  // Hàm chuyển đổi trạng thái đơn xin nghỉ phép sang tiếng Việt
+  const getStatusText = useCallback((status) => {
+    switch (status) {
+      case "pending":
+        return "Đang chờ duyệt";
+      case "approved":
+        return "Đã duyệt";
+      case "rejected":
+        return "Đã từ chối";
+      default:
+        return status;
+    }
+  }, []);
+
+  // Hàm mở dialog điểm danh thủ công
+  const openManualAttendanceDialog = useCallback((student) => {
+    setSelectedStudent(student);
+    setManualAttendanceData({
+      status: "present",
+      note: "",
+    });
+    setManualDialogOpen(true);
+  }, []);
+
+  // Hàm đóng dialog điểm danh thủ công
+  const handleManualDialogClose = useCallback(() => {
+    setManualDialogOpen(false);
+    setSelectedStudent(null);
+    setManualAttendanceData({
+      status: "present",
+      note: "",
+    });
+  }, []);
+
+  // Hàm xử lý thay đổi form điểm danh thủ công
+  const handleManualAttendanceChange = useCallback((e) => {
+    setManualAttendanceData((prev) => ({
+      ...prev,
+      [e.target.name]: e.target.value,
+    }));
+  }, []);
+
+  // Hàm xử lý điểm danh thủ công
+  const handleManualAttendanceSubmit = useCallback(async () => {
+    try {
+      setIsProcessing(true);
+
+      const response = await dispatch(
+        manualAttendance({
+          sessionId,
+          studentId: selectedStudent._id,
+          status: manualAttendanceData.status,
+          note: manualAttendanceData.note,
+        })
+      ).unwrap();
+
+      if (response.success) {
+        enqueueSnackbar("Điểm danh thủ công thành công", {
+          variant: "success",
+        });
+        handleManualDialogClose();
+        refreshAttendanceLogs();
+      }
+    } catch (error) {
+      console.error("Lỗi khi điểm danh thủ công:", error);
+      enqueueSnackbar(error.message || "Lỗi khi điểm danh thủ công", {
+        variant: "error",
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [
+    dispatch,
+    sessionId,
+    selectedStudent,
+    manualAttendanceData,
+    enqueueSnackbar,
+    handleManualDialogClose,
+  ]);
+
+  // Các hàm khác
+  const handleQuickReview = async (request, newStatus) => {
+    try {
+      setIsProcessing(true);
+      await dispatch(
+        reviewerUpdateRequestStatus({
+          requestId: request._id,
+          statusData: {
+            status: newStatus,
+            reviewer_notes:
+              newStatus === "approved"
+                ? "Đơn được chấp nhận (duyệt nhanh)"
+                : "Đơn bị từ chối (từ chối nhanh)",
+          },
+        })
+      ).unwrap();
+
+      // Cập nhật điểm danh nếu duyệt đơn
+      if (newStatus === "approved") {
+        console.log(
+          "[DEBUG AttendancePage] Absence Request Object (request):",
+          JSON.stringify(request, null, 2)
+        );
+        console.log(
+          "[DEBUG AttendancePage] request.student_id:",
+          request.student_id
+        );
+        console.log(
+          "[DEBUG AttendancePage] request.student_id._id:",
+          request.student_id?._id
+        );
+
+        await dispatch(
+          manualAttendance({
+            sessionId: sessionId,
+            studentId: request.student_id?._id, // Sử dụng optional chaining cho an toàn
+            status: "present", // <<<< ĐỔI THÀNH "present" KHI ĐƠN ĐƯỢC DUYỆT
+            note: "Vắng có phép - Đơn được duyệt", // Cập nhật note cho rõ ràng
+            absence_request_id: request._id, // Liên kết với ID của đơn xin nghỉ đã duyệt
+          })
+        ).unwrap();
+      }
+      // Nếu từ chối, không cần tự động cập nhật AttendanceLog ở đây,
+      // vì sinh viên đó có thể vẫn được điểm danh là "present" nếu họ thực sự đi học,
+      // hoặc sẽ là "absent" nếu không đi học (và AttendanceLog sẽ không có absence_request_id hoặc có nhưng request bị rejected).
+
+      enqueueSnackbar(
+        `Đã ${newStatus === "approved" ? "duyệt" : "từ chối"} đơn xin nghỉ`,
+        { variant: "success" }
+      );
+
+      // Refresh dữ liệu
+      fetchAbsenceRequests(); // Tải lại danh sách đơn của session này
+      refreshAttendanceLogs(); // Tải lại logs điểm danh
+    } catch (error) {
+      console.error("Lỗi khi xử lý đơn:", error);
+      enqueueSnackbar(
+        error.response?.data?.message || "Lỗi khi xử lý đơn xin nghỉ",
+        { variant: "error" }
+      );
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   // --- Effects ---
 
   // Load initial data: class, session, logs, models, features
   useEffect(() => {
+    let mounted = true;
+
     const loadData = async () => {
       setIsLoading(true);
       setComponentError(null); // Clear previous errors
@@ -272,17 +459,52 @@ const AttendancePage = () => {
         setIsLoading(false);
       }
     };
+
     loadData();
+    // Thêm fetchAbsenceRequests vào đây
+    fetchAbsenceRequests();
 
     // Cleanup function
     return () => {
-      dispatch(clearRecognitionState()); // Clear face-rec state on unmount
-      clearInterval(autoModeIntervalRef.current);
-      clearInterval(landmarkIntervalRef.current);
-      // Stop camera stream if active
-      webcamRef.current?.video?.srcObject
-        ?.getTracks()
-        .forEach((track) => track.stop());
+      try {
+        mounted = false;
+        // Dừng animation frame nếu đang chạy
+        if (animationFrameRef.current) {
+          cancelAnimationFrame(animationFrameRef.current);
+        }
+        // Dừng vẽ landmarks
+        setShowLandmarks(false);
+        // Xóa canvas
+        if (canvasRef.current) {
+          const ctx = canvasRef.current.getContext("2d");
+          if (ctx) {
+            ctx.clearRect(
+              0,
+              0,
+              canvasRef.current.width,
+              canvasRef.current.height
+            );
+          }
+        }
+        // Dừng camera stream
+        if (webcamRef.current) {
+          const stream = webcamRef.current.video.srcObject;
+          if (stream) {
+            stream.getTracks().forEach((track) => track.stop());
+          }
+        }
+        // Clear các state và interval
+        dispatch(clearRecognitionState());
+        clearInterval(autoModeIntervalRef.current);
+        clearInterval(landmarkIntervalRef.current);
+        setDetectedFaces([]);
+        setSelectedStudent(null);
+        setManualAttendanceData({ status: "present", note: "" });
+        setManualDialogOpen(false);
+      } catch (error) {
+        // Bỏ qua lỗi khi cleanup
+        console.log("Đã bỏ qua lỗi cleanup");
+      }
     };
     // Ensure isModelLoaded is a dependency to refetch features if model loads later
   }, [
@@ -311,6 +533,22 @@ const AttendancePage = () => {
     // Cleanup interval on change
     return () => stopLandmarkDetection();
   }, [isCameraReady, showLandmarks, isAutoMode]); // Dependencies
+
+  // Thêm useEffect để fetch absence requests
+  useEffect(() => {
+    if (classId) {
+      dispatch(
+        fetchAllAbsenceRequestsForReview({ teaching_class_id: classId })
+      );
+    }
+  }, [dispatch, classId]);
+
+  // Thêm useEffect để fetch đơn xin nghỉ phép khi component mount
+  useEffect(() => {
+    if (sessionId) {
+      fetchAbsenceRequests();
+    }
+  }, [sessionId]);
 
   // --- Camera Handling ---
 
@@ -545,205 +783,187 @@ const AttendancePage = () => {
 
   // --- Manual Actions ---
 
-  // Handle manual capture & recognize button click
   const handleManualCapture = async () => {
-    if (isProcessing) return; // Prevent multiple clicks
-
-    const result = await detectAndRecognizeFaces(true); // Perform full detection and recognition
-
-    if (result && result.recognized.length > 0) {
-      const topMatch = result.recognized.sort(
-        (a, b) => b.confidence - a.confidence
-      )[0];
-      enqueueSnackbar(
-        `Đã nhận diện: ${topMatch.name} (${(topMatch.confidence * 100).toFixed(
-          1
-        )}%)`,
-        { variant: "info" }
-      );
-      // Optionally, automatically mark attendance if confidence is high enough
-      if (topMatch.confidence >= CONFIDENCE_THRESHOLD) {
-        // Find the corresponding descriptor
-        const descriptor =
-          result.detections[topMatch.detectionIndex]?.descriptor;
-        if (descriptor) {
-          handleMarkAttendance(
-            topMatch.studentId,
-            topMatch.confidence,
-            descriptor
-          );
-        } else {
-          console.warn("Không tìm thấy descriptor cho top match", topMatch);
-          enqueueSnackbar(
-            "Lỗi: Không thể lấy đặc trưng khuôn mặt để điểm danh.",
-            { variant: "warning" }
-          );
-        }
-      }
-    } else if (result && result.detections.length > 0) {
-      enqueueSnackbar(
-        "Phát hiện khuôn mặt nhưng không nhận diện được sinh viên nào",
-        { variant: "warning" }
-      );
-    } else {
-      enqueueSnackbar("Không phát hiện khuôn mặt nào", { variant: "warning" });
-    }
-  };
-
-  // Open manual attendance dialog
-  const openManualAttendanceDialog = (student) => {
-    if (!student) return;
-    setSelectedStudent(student);
-    setManualAttendanceData({ note: "" }); // Chỉ cần reset note
-    setManualDialogOpen(true);
-  };
-
-  // Close manual attendance dialog
-  const handleManualDialogClose = () => {
-    setManualDialogOpen(false);
-    setSelectedStudent(null);
-  };
-
-  // Handle manual attendance form change (chỉ còn note)
-  const handleManualAttendanceChange = (e) => {
-    setManualAttendanceData({
-      ...manualAttendanceData,
-      [e.target.name]: e.target.value,
-    });
-  };
-
-  // Handle manual attendance submission
-  const handleManualAttendanceSubmit = async () => {
-    if (!selectedStudent || isProcessing) return;
-
     try {
-      // Chỉ gửi sessionId, studentId và note
-      const result = await dispatch(
-        manualAttendance({
-          sessionId,
-          studentId: selectedStudent._id,
-          // status: manualAttendanceData.status, // Bỏ status
-          note: manualAttendanceData.note,
-        })
-      ).unwrap();
-
-      // Update local attendance logs immediately for better UX
-      setAttendanceLogs((prevLogs) => {
-        const existingLogIndex = prevLogs.findIndex(
-          (log) => log.student_id?._id === selectedStudent._id
-        );
-        // Đảm bảo log mới có status là 'present'
-        const newLogData = {
-          ...result.data,
-          status: "present",
-          student_id: selectedStudent,
-        };
-
-        if (existingLogIndex > -1) {
-          const updatedLogs = [...prevLogs];
-          updatedLogs[existingLogIndex] = newLogData;
-          return updatedLogs;
-        } else {
-          return [...prevLogs, newLogData];
-        }
-      });
-
-      enqueueSnackbar(
-        `Đã điểm danh thủ công (Có mặt) cho ${selectedStudent.full_name}`,
-        { variant: "success" }
-      );
-      handleManualDialogClose();
-      // Optionally refetch session info if needed
-      // fetchSessionInfo();
-    } catch (error) {
-      console.error("Lỗi khi điểm danh thủ công:", error);
-      enqueueSnackbar(error.message || "Lỗi khi điểm danh thủ công", {
-        variant: "error",
-      });
-    }
-  };
-
-  // Mark attendance (used by both manual and auto modes)
-  const handleMarkAttendance = useCallback(
-    async (studentId, confidence, faceDescriptor) => {
-      if (!studentId || isProcessing) return;
-
-      // Check if student already marked present
-      const isAlreadyPresent = attendanceLogs.some(
-        (log) => log.student_id?._id === studentId && log.status === "present"
-      );
-      if (isAlreadyPresent) {
-        return; // Don't mark again if already present
-      }
-
-      const student = classStudents.find((s) => s._id === studentId);
-      if (!student) {
-        console.warn("Student not found for marking attendance:", studentId);
+      setIsProcessing(true); // Bắt đầu xử lý
+      if (!webcamRef.current || !canvasRef.current || !isModelLoaded) {
+        enqueueSnackbar("Camera hoặc mô hình chưa sẵn sàng", {
+          variant: "error",
+        });
+        setIsProcessing(false); // Kết thúc xử lý nếu lỗi
         return;
       }
 
-      // Capture image for proof (optional, but good practice)
-      let imageBase64 = null;
-      try {
-        if (webcamRef.current) {
-          imageBase64 = webcamRef.current.getScreenshot({
-            width: 320,
-            height: 240,
-          }); // Smaller screenshot
-        }
-      } catch (screenshotError) {
-        console.error("Error taking screenshot:", screenshotError);
-        // Proceed without image if screenshot fails
+      const video = webcamRef.current.video;
+
+      // Chụp ảnh từ webcam
+      const tempCanvas = document.createElement("canvas");
+      tempCanvas.width = video.videoWidth;
+      tempCanvas.height = video.videoHeight;
+      const ctx = tempCanvas.getContext("2d");
+      ctx.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
+      const imageBase64 = tempCanvas.toDataURL("image/jpeg");
+
+      const detectionResult = await faceapi
+        .detectSingleFace(video, FACE_DETECTION_OPTIONS)
+        .withFaceLandmarks()
+        .withFaceDescriptor();
+
+      if (!detectionResult) {
+        enqueueSnackbar("Không phát hiện được khuôn mặt nào.", {
+          variant: "warning",
+        });
+        setIsProcessing(false);
+        return;
       }
 
-      try {
-        const result = await dispatch(
+      if (!detectionResult.descriptor) {
+        enqueueSnackbar("Không thể trích xuất đặc trưng khuôn mặt.", {
+          variant: "warning",
+        });
+        setIsProcessing(false);
+        return;
+      }
+
+      if (!isValidBox(detectionResult.detection.box)) {
+        enqueueSnackbar("Khuôn mặt phát hiện không hợp lệ (box).", {
+          variant: "warning",
+        });
+        setIsProcessing(false);
+        return;
+      }
+
+      const match = findMatchingStudent(detectionResult.descriptor);
+
+      if (match && match.student) {
+        const { student: matchingStudent, confidence } = match;
+
+        const response = await dispatch(
           verifyAttendance({
             sessionId,
-            studentId,
-            faceDescriptor, // Pass the received descriptor
+            studentId: matchingStudent._id,
+            faceDescriptor: detectionResult.descriptor,
             confidence,
             imageBase64,
-            recognized: true, // Mark as recognized by the system
           })
         ).unwrap();
 
-        // Update local attendance logs
-        setAttendanceLogs((prevLogs) => {
-          const existingLogIndex = prevLogs.findIndex(
-            (log) => log.student_id?._id === studentId
+        if (response.success) {
+          enqueueSnackbar(
+            `Đã điểm danh thành công cho ${
+              matchingStudent.full_name
+            } (Độ tin cậy: ${(confidence * 100).toFixed(1)}%)`,
+            { variant: "success" }
           );
-          const newLog = { ...result.data, student_id: student }; // Use the found student data
-          if (existingLogIndex > -1) {
-            const updatedLogs = [...prevLogs];
-            updatedLogs[existingLogIndex] = newLog;
-            return updatedLogs;
-          } else {
-            return [...prevLogs, newLog];
-          }
-        });
-
-        enqueueSnackbar(`Đã điểm danh cho ${student.full_name}`, {
-          variant: "success",
-        });
-      } catch (error) {
-        console.error("Lỗi khi xác nhận điểm danh:", error);
-        enqueueSnackbar(error.message || "Lỗi khi xác nhận điểm danh", {
-          variant: "error",
+          refreshAttendanceLogs();
+        } else {
+          enqueueSnackbar(
+            response.message ||
+              `Lỗi khi điểm danh cho ${matchingStudent.full_name}`,
+            { variant: "error" }
+          );
+        }
+      } else {
+        enqueueSnackbar("Không tìm thấy sinh viên khớp trong danh sách lớp.", {
+          variant: "warning",
         });
       }
-    },
-    [
-      dispatch,
-      sessionId,
-      classStudents,
-      attendanceLogs,
-      isProcessing,
-      enqueueSnackbar,
-    ]
-  ); // Added dependencies
+    } catch (error) {
+      console.error("Lỗi khi chụp ảnh và nhận diện thủ công:", error);
+      enqueueSnackbar(
+        error.message || "Có lỗi xảy ra khi chụp ảnh và nhận diện thủ công.",
+        { variant: "error" }
+      );
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const findMatchingStudent = (descriptor) => {
+    if (!descriptor || !Array.isArray(classStudents)) return null;
+
+    let bestMatchStudent = null;
+    let minDistance = Infinity;
+
+    classStudents.forEach((student) => {
+      const studentDescriptors = extractStudentDescriptors(student);
+      if (!studentDescriptors.length) return;
+
+      studentDescriptors.forEach((studentDescriptor) => {
+        // Giả sử getFaceDistance trả về khoảng cách Euclidean (càng nhỏ càng tốt)
+        const distance = getFaceDistance(descriptor, studentDescriptor);
+        if (distance < minDistance && distance < RECOGNITION_THRESHOLD) {
+          minDistance = distance;
+          bestMatchStudent = student;
+        }
+      });
+    });
+
+    if (bestMatchStudent) {
+      // Confidence = 1 - distance. Đảm bảo distance không quá lớn hơn 1 nếu có thể.
+      // RECOGNITION_THRESHOLD là ngưỡng cho distance.
+      const confidence = 1 - minDistance; // Giả định distance trong khoảng [0, RECOGNITION_THRESHOLD]
+      return {
+        student: bestMatchStudent,
+        confidence: Math.max(0, Math.min(1, confidence)),
+      }; // Kẹp confidence trong [0,1]
+    }
+
+    return null;
+  };
 
   // --- Auto Mode ---
+
+  const refreshAttendanceLogs = async () => {
+    if (isProcessing) return;
+
+    // Kiểm tra thời gian từ lần refresh cuối
+    const now = Date.now();
+    if (now - lastRefreshTimeRef.current < REFRESH_COOLDOWN) {
+      // Nếu chưa đủ thời gian cooldown, hủy timeout cũ và đặt timeout mới
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current);
+      }
+      refreshTimeoutRef.current = setTimeout(() => {
+        refreshAttendanceLogs();
+      }, REFRESH_COOLDOWN);
+      return;
+    }
+
+    try {
+      setIsProcessing(true);
+      const [logsRes, sessionRes] = await Promise.all([
+        axios.get(`${API_URL}/attendance/logs/${sessionId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        axios.get(`${API_URL}/attendance/sessions/${sessionId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      ]);
+
+      setAttendanceLogs(logsRes.data.data);
+      setSessionInfo(sessionRes.data.data);
+      lastRefreshTimeRef.current = now;
+
+      // Chỉ hiển thị thông báo khi refresh được kích hoạt bởi người dùng
+      if (now - lastRefreshTimeRef.current >= REFRESH_COOLDOWN) {
+        enqueueSnackbar("Đã cập nhật dữ liệu mới nhất", {
+          variant: "success",
+          autoHideDuration: 2000,
+        });
+      }
+    } catch (error) {
+      console.error("Lỗi khi làm mới dữ liệu:", error);
+      enqueueSnackbar(
+        error.response?.data?.message || "Lỗi khi làm mới dữ liệu",
+        {
+          variant: "error",
+        }
+      );
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   const startAutoAttendance = useCallback(() => {
     if (
@@ -762,27 +982,81 @@ const AttendancePage = () => {
     setIsAutoMode(true);
     enqueueSnackbar("Bật chế độ tự động điểm danh", { variant: "info" });
 
+    // Thêm Set để theo dõi sinh viên đã điểm danh trong khoảng thời gian gần đây
+    const recentlyChecked = new Set();
+    const COOLDOWN_TIME = 10000; // 10 giây cooldown giữa các lần điểm danh cho cùng 1 sinh viên
+
     autoModeIntervalRef.current = setInterval(async () => {
       const result = await detectAndRecognizeFaces(true); // Detect and recognize
 
       if (result && result.recognized.length > 0) {
         // Process recognized students
-        result.recognized.forEach((rec) => {
+        for (const rec of result.recognized) {
           // Check if confidence meets or exceeds the threshold
           if (rec.confidence >= CONFIDENCE_THRESHOLD && rec.studentId) {
-            // Find the corresponding descriptor
-            const descriptor =
-              result.detections[rec.detectionIndex]?.descriptor;
-            if (descriptor) {
-              handleMarkAttendance(rec.studentId, rec.confidence, descriptor); // Attempt to mark attendance
-            } else {
-              console.warn(
-                "Không tìm thấy descriptor cho recognized student trong auto mode",
-                rec
-              );
+            // Kiểm tra xem sinh viên đã được điểm danh gần đây chưa
+            if (recentlyChecked.has(rec.studentId)) {
+              continue; // Bỏ qua nếu mới điểm danh xong
+            }
+
+            // Find the corresponding descriptor and detection
+            const detection = result.detections[rec.detectionIndex];
+            if (detection && detection.descriptor) {
+              try {
+                // Lấy ảnh khuôn mặt từ video
+                const canvas = document.createElement("canvas");
+                const video = webcamRef.current.video;
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                const ctx = canvas.getContext("2d");
+                ctx.drawImage(video, 0, 0);
+                const imageBase64 = canvas.toDataURL("image/jpeg");
+
+                // Gọi API verifyAttendance
+                const response = await dispatch(
+                  verifyAttendance({
+                    sessionId,
+                    studentId: rec.studentId,
+                    faceDescriptor: Array.from(detection.descriptor),
+                    confidence: rec.confidence,
+                    imageBase64,
+                  })
+                ).unwrap();
+
+                // Thêm sinh viên vào danh sách đã điểm danh gần đây
+                recentlyChecked.add(rec.studentId);
+                setTimeout(() => {
+                  recentlyChecked.delete(rec.studentId);
+                }, COOLDOWN_TIME);
+
+                // Hiển thị thông báo thành công
+                const student = classStudents.find(
+                  (s) => s._id === rec.studentId
+                );
+                if (student) {
+                  enqueueSnackbar(
+                    `Đã điểm danh cho ${student.full_name} (${(
+                      rec.confidence * 100
+                    ).toFixed(1)}%)`,
+                    {
+                      variant: "success",
+                      autoHideDuration: 3000,
+                    }
+                  );
+                }
+
+                // Refresh danh sách điểm danh
+                await refreshAttendanceLogs();
+              } catch (error) {
+                console.error("Lỗi khi điểm danh tự động:", error);
+                enqueueSnackbar(
+                  `Lỗi khi điểm danh: ${error.message || "Không xác định"}`,
+                  { variant: "error" }
+                );
+              }
             }
           }
-        });
+        }
       }
     }, AUTO_DETECT_INTERVAL);
   }, [
@@ -790,8 +1064,10 @@ const AttendancePage = () => {
     isModelLoaded,
     classStudents,
     detectAndRecognizeFaces,
-    handleMarkAttendance,
+    dispatch,
+    sessionId,
     enqueueSnackbar,
+    refreshAttendanceLogs,
   ]); // Added dependencies
 
   const stopAutoAttendance = useCallback(() => {
@@ -824,61 +1100,87 @@ const AttendancePage = () => {
   // --- Other Actions ---
 
   const completeSession = async () => {
-    if (isProcessing) return;
     try {
-      // Lấy danh sách sinh viên vắng mặt từ UI
-      const absentStudentIds = absentStudents.map((student) => student._id);
+      // Dừng animation và xóa landmarks trước khi kết thúc
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+      setShowLandmarks(false);
+      if (canvasRef.current) {
+        const ctx = canvasRef.current.getContext("2d");
+        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      }
 
-      enqueueSnackbar("Đang kết thúc phiên...", { variant: "info" });
-
-      await axios.put(
-        `${API_URL}/attendance/sessions/${sessionId}`,
-        {
-          status: "completed",
-          students_absent: absentStudentIds,
-        },
+      const response = await axios.put(
+        `${API_URL}/attendance/sessions/${sessionId}/status`,
+        { status: "completed" },
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      enqueueSnackbar("Phiên điểm danh đã kết thúc", { variant: "success" });
-      setSessionInfo((prev) => ({ ...prev, status: "completed" }));
-      stopAutoAttendance();
+      enqueueSnackbar("Đã kết thúc phiên điểm danh", { variant: "success" });
+      navigate(`/teacher/classes/${classId}`);
     } catch (error) {
       console.error("Lỗi khi kết thúc phiên:", error);
-      enqueueSnackbar(
-        error.response?.data?.message || "Lỗi khi kết thúc phiên",
-        { variant: "error" }
-      );
+      enqueueSnackbar("Lỗi khi kết thúc phiên điểm danh", { variant: "error" });
     }
   };
 
-  const refreshAttendanceLogs = async () => {
-    if (isProcessing) return;
-    try {
-      enqueueSnackbar("Đang làm mới dữ liệu...", { variant: "info" });
-      const [logsRes, sessionRes] = await Promise.all([
-        axios.get(`${API_URL}/attendance/logs/${sessionId}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        axios.get(`${API_URL}/attendance/sessions/${sessionId}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-      ]);
-      setAttendanceLogs(logsRes.data.data);
-      setSessionInfo(sessionRes.data.data);
-      enqueueSnackbar("Đã làm mới dữ liệu", { variant: "success" });
-    } catch (error) {
-      console.error("Lỗi khi làm mới dữ liệu:", error);
-      enqueueSnackbar(
-        error.response?.data?.message || "Lỗi khi làm mới dữ liệu",
-        { variant: "error" }
-      );
-    }
-  };
+  // Cleanup function trong useEffect
+  useEffect(() => {
+    return () => {
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current);
+      }
+    };
+  }, []);
 
+  // Cập nhật hàm toggleLandmarks
   const toggleLandmarks = () => {
+    if (showLandmarks) {
+      // Nếu đang hiển thị landmarks, dừng animation và xóa canvas
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+      if (canvasRef.current) {
+        const ctx = canvasRef.current.getContext("2d");
+        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      }
+    }
     setShowLandmarks((prev) => !prev);
   };
+
+  // Sửa lại hàm fetchAbsenceRequests
+  const fetchAbsenceRequests = useCallback(async () => {
+    try {
+      console.log("Fetching absence requests for session:", sessionId);
+      const response = await axios.get(
+        `${API_URL}/absence-requests/session/${sessionId}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      console.log("Absence requests response:", response.data);
+
+      if (response.data.success) {
+        setLocalAbsenceRequests(response.data.data || []);
+      } else {
+        console.error(
+          "Failed to fetch absence requests:",
+          response.data.message
+        );
+        enqueueSnackbar("Không thể tải danh sách đơn xin nghỉ phép", {
+          variant: "error",
+        });
+      }
+    } catch (error) {
+      console.error("Error fetching absence requests:", error);
+      enqueueSnackbar("Lỗi khi tải danh sách đơn xin nghỉ phép", {
+        variant: "error",
+      });
+    }
+  }, [sessionId, token, enqueueSnackbar]);
 
   // --- Derived State ---
   const presentStudents = attendanceLogs.filter(
@@ -933,6 +1235,8 @@ const AttendancePage = () => {
       </Box>
     );
   }
+
+  // Hàm đã được xóa vì chức năng trùng lặp
 
   return (
     <Box sx={{ p: { xs: 1, sm: 2, md: 3 } }}>
@@ -1329,7 +1633,7 @@ const AttendancePage = () => {
           </Card>
 
           {/* Absent Students */}
-          <Card sx={{ borderRadius: "10px", boxShadow: 3 }}>
+          <Card sx={{ mt: 2, borderRadius: "10px", boxShadow: 3 }}>
             <CardContent>
               <Typography
                 variant="h6"
@@ -1344,7 +1648,7 @@ const AttendancePage = () => {
               <Box sx={{ maxHeight: "300px", overflow: "auto", pr: 1 }}>
                 {absentStudents.length === 0 ? (
                   <Typography
-                    variant="body2"
+                    variant="body1"
                     color="textSecondary"
                     align="center"
                     sx={{ py: 2 }}
@@ -1353,64 +1657,100 @@ const AttendancePage = () => {
                   </Typography>
                 ) : (
                   <List dense>
-                    {absentStudents.map((student) => (
-                      // Keep absent list detailed for now
-                      <ListItem
-                        key={student._id}
-                        disablePadding
-                        sx={{ mb: 0.5 }}
-                        secondaryAction={
-                          !sessionCompleted ? (
-                            <Tooltip title="Điểm danh thủ công">
-                              <IconButton
-                                edge="end"
-                                size="small"
-                                onClick={() =>
-                                  openManualAttendanceDialog(student)
-                                }
-                                disabled={isProcessing}
-                              >
-                                <Edit fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          ) : null
-                        }
-                      >
-                        <Paper
-                          variant="outlined"
-                          sx={{
-                            width: "100%",
-                            display: "flex",
-                            alignItems: "center",
-                            p: 0.5,
-                            borderRadius: "4px",
-                          }}
+                    {absentStudents.map((student) => {
+                      const absenceRequest = localAbsenceRequests.find(
+                        (request) => request.student_id._id === student._id
+                      );
+
+                      return (
+                        <ListItem
+                          key={student._id}
+                          disablePadding
+                          sx={{ mb: 0.5 }}
                         >
-                          <ListItemAvatar sx={{ minWidth: 45 }}>
-                            <Avatar
-                              alt={student.full_name}
-                              src={student.avatar_url}
-                              sx={{ width: 32, height: 32 }}
-                            />
-                          </ListItemAvatar>
                           <ListItemText
-                            primary={
-                              <Typography variant="body2" noWrap>
-                                {student.full_name}
-                              </Typography>
-                            }
+                            primary={student.full_name}
                             secondary={
-                              <Typography
-                                variant="caption"
-                                color="text.secondary"
-                              >
-                                {student.school_info?.student_id || "N/A"}
-                              </Typography>
+                              absenceRequest
+                                ? `Đơn xin nghỉ phép: ${getStatusText(
+                                    absenceRequest.status
+                                  )}`
+                                : "Chưa có đơn xin nghỉ phép"
                             }
                           />
-                        </Paper>
-                      </ListItem>
-                    ))}
+                          {!sessionCompleted && (
+                            <Box sx={{ display: "flex", gap: 1 }}>
+                              {absenceRequest && (
+                                <>
+                                  <Tooltip title="Xem chi tiết đơn">
+                                    <IconButton
+                                      edge="end"
+                                      size="small"
+                                      onClick={() => {
+                                        setSelectedRequest(absenceRequest);
+                                        setDetailDialogOpen(true);
+                                      }}
+                                      color="info"
+                                    >
+                                      <Info />
+                                    </IconButton>
+                                  </Tooltip>
+                                  {absenceRequest.status === "pending" && (
+                                    <>
+                                      <Tooltip title="Duyệt đơn và điểm danh có phép">
+                                        <IconButton
+                                          edge="end"
+                                          size="small"
+                                          onClick={() =>
+                                            handleQuickReview(
+                                              absenceRequest,
+                                              "approved"
+                                            )
+                                          }
+                                          disabled={isProcessing}
+                                          color="success"
+                                        >
+                                          <CheckCircle />
+                                        </IconButton>
+                                      </Tooltip>
+                                      <Tooltip title="Từ chối đơn">
+                                        <IconButton
+                                          edge="end"
+                                          size="small"
+                                          onClick={() =>
+                                            handleQuickReview(
+                                              absenceRequest,
+                                              "rejected"
+                                            )
+                                          }
+                                          disabled={isProcessing}
+                                          color="error"
+                                        >
+                                          <Cancel />
+                                        </IconButton>
+                                      </Tooltip>
+                                    </>
+                                  )}
+                                </>
+                              )}
+                              <Tooltip title="Điểm danh thủ công">
+                                <IconButton
+                                  edge="end"
+                                  size="small"
+                                  onClick={() =>
+                                    openManualAttendanceDialog(student)
+                                  }
+                                  disabled={isProcessing}
+                                  color="primary"
+                                >
+                                  <PersonAdd />
+                                </IconButton>
+                              </Tooltip>
+                            </Box>
+                          )}
+                        </ListItem>
+                      );
+                    })}
                   </List>
                 )}
               </Box>
@@ -1423,49 +1763,164 @@ const AttendancePage = () => {
       <Dialog
         open={manualDialogOpen}
         onClose={handleManualDialogClose}
-        maxWidth="xs"
+        maxWidth="sm"
         fullWidth
       >
-        <DialogTitle>Điểm danh thủ công (Ghi nhận Có mặt)</DialogTitle>
+        <DialogTitle>Điểm danh thủ công</DialogTitle>
         <DialogContent>
-          {selectedStudent && (
-            <Box display="flex" alignItems="center" mb={2}>
-              <Avatar
-                src={selectedStudent.avatar_url}
-                alt={selectedStudent.full_name}
-                sx={{ width: 48, height: 48, mr: 2 }}
-              />
-              <Box>
-                <Typography variant="subtitle1">
-                  {selectedStudent.full_name}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  MSSV: {selectedStudent.school_info?.student_id || "N/A"}
-                </Typography>
-              </Box>
-            </Box>
-          )}
-          <TextField
-            fullWidth
-            margin="normal"
-            name="note"
-            label="Ghi chú (tùy chọn)"
-            value={manualAttendanceData.note}
-            onChange={handleManualAttendanceChange}
-            multiline
-            rows={2}
-            placeholder="Nhập lý do điểm danh thủ công (nếu có)"
-          />
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="subtitle1" gutterBottom>
+              Sinh viên: {selectedStudent?.full_name}
+            </Typography>
+            <TextField
+              fullWidth
+              multiline
+              rows={3}
+              name="note"
+              label="Ghi chú"
+              value={manualAttendanceData.note}
+              onChange={handleManualAttendanceChange}
+              sx={{ mt: 2 }}
+            />
+          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={handleManualDialogClose}>Hủy</Button>
           <Button
             onClick={handleManualAttendanceSubmit}
             variant="contained"
-            color="primary"
             disabled={isProcessing}
           >
-            Xác nhận Có mặt
+            {isProcessing ? "Đang xử lý..." : "Xác nhận"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Thêm Dialog xem chi tiết đơn xin nghỉ */}
+      <Dialog
+        open={detailDialogOpen}
+        onClose={() => {
+          setDetailDialogOpen(false);
+          setSelectedRequest(null);
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Chi tiết đơn xin nghỉ phép</DialogTitle>
+        <DialogContent>
+          {selectedRequest && (
+            <Box sx={{ mt: 2 }}>
+              <Typography variant="subtitle1" gutterBottom>
+                <strong>Sinh viên:</strong>{" "}
+                {selectedRequest.student_id?.full_name}
+              </Typography>
+              <Typography variant="body2" gutterBottom>
+                <strong>MSSV:</strong>{" "}
+                {selectedRequest.student_id?.school_info?.student_id}
+              </Typography>
+              <Typography variant="body2" gutterBottom>
+                <strong>Lớp:</strong>{" "}
+                {selectedRequest.student_id?.school_info?.class_name}
+              </Typography>
+              <Typography variant="body2" gutterBottom>
+                <strong>Thời gian gửi:</strong>{" "}
+                {new Date(selectedRequest.created_at).toLocaleString("vi-VN")}
+              </Typography>
+              <Typography variant="body2" gutterBottom>
+                <strong>Trạng thái:</strong>{" "}
+                {getStatusText(selectedRequest.status)}
+              </Typography>
+              <Typography variant="body2" gutterBottom>
+                <strong>Lý do:</strong>
+              </Typography>
+              <Paper
+                variant="outlined"
+                sx={{
+                  p: 2,
+                  mb: 2,
+                  backgroundColor: "grey.50",
+                  maxHeight: "100px",
+                  overflow: "auto",
+                }}
+              >
+                <Typography variant="body2">
+                  {selectedRequest.reason}
+                </Typography>
+              </Paper>
+              {selectedRequest.evidence_url && (
+                <Box>
+                  <Typography variant="body2" gutterBottom>
+                    <strong>Minh chứng đính kèm:</strong>
+                  </Typography>
+                  <Box
+                    component="img"
+                    src={selectedRequest.evidence_url}
+                    alt="Minh chứng"
+                    sx={{
+                      width: "100%",
+                      maxHeight: "200px",
+                      objectFit: "contain",
+                      border: "1px solid #ddd",
+                      borderRadius: 1,
+                    }}
+                    onError={(e) => {
+                      e.target.style.display = "none";
+                      e.target.nextSibling.style.display = "block";
+                    }}
+                  />
+                  <Typography
+                    variant="body2"
+                    color="error"
+                    sx={{ display: "none", textAlign: "center", mt: 1 }}
+                  >
+                    Không thể tải ảnh minh chứng
+                  </Typography>
+                </Box>
+              )}
+              {selectedRequest.status === "pending" && (
+                <Box
+                  sx={{
+                    mt: 2,
+                    display: "flex",
+                    gap: 1,
+                    justifyContent: "flex-end",
+                  }}
+                >
+                  <Button
+                    variant="contained"
+                    color="success"
+                    onClick={() =>
+                      handleQuickReview(selectedRequest, "approved")
+                    }
+                    disabled={isProcessing}
+                    startIcon={<CheckCircle />}
+                  >
+                    Duyệt đơn
+                  </Button>
+                  <Button
+                    variant="contained"
+                    color="error"
+                    onClick={() =>
+                      handleQuickReview(selectedRequest, "rejected")
+                    }
+                    disabled={isProcessing}
+                    startIcon={<Cancel />}
+                  >
+                    Từ chối
+                  </Button>
+                </Box>
+              )}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setDetailDialogOpen(false);
+              setSelectedRequest(null);
+            }}
+          >
+            Đóng
           </Button>
         </DialogActions>
       </Dialog>

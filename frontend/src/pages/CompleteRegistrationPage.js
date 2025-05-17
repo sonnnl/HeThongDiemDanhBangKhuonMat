@@ -27,6 +27,8 @@ import {
   Accordion,
   AccordionSummary,
   AccordionDetails,
+  FormControlLabel,
+  Checkbox,
 } from "@mui/material";
 import {
   School,
@@ -60,8 +62,11 @@ const CompleteRegistrationPage = () => {
   const [faceData, setFaceData] = useState(null);
   const [isFaceRegistrationComplete, setIsFaceRegistrationComplete] =
     useState(false);
+  const [enableFaceRegistration, setEnableFaceRegistration] = useState(false);
   const [derivedCourseYear, setDerivedCourseYear] = useState("");
   const [derivedMajorName, setDerivedMajorName] = useState("");
+  const [isCheckingStudentId, setIsCheckingStudentId] = useState(false);
+  const [isCheckingTeacherCode, setIsCheckingTeacherCode] = useState(false);
 
   // Lấy thông tin từ URL params
   const queryParams = new URLSearchParams(location.search);
@@ -295,6 +300,161 @@ const CompleteRegistrationPage = () => {
     });
   };
 
+  // Thêm debounce cho việc gọi API
+  const debouncedCheck = (func, delay) => {
+    let timeout;
+    return (...args) => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => func.apply(this, args), delay);
+    };
+  };
+
+  const checkStudentIdExists = async (studentId) => {
+    if (!studentId || studentId.trim() === "") {
+      setFormErrors((prev) => ({ ...prev, student_id: "" })); // Xóa lỗi nếu rỗng
+      return;
+    }
+    setIsCheckingStudentId(true);
+    try {
+      const response = await axios.get(
+        `${API_URL}/users/check-identifier?type=studentId&value=${studentId}`
+      );
+      // API nên trả về 200 OK và dùng response.data.exists
+      if (response.data.exists) {
+        setFormErrors((prev) => ({
+          ...prev,
+          student_id:
+            response.data.message || "Mã số sinh viên này đã tồn tại.",
+        }));
+      } else {
+        setFormErrors((prev) => ({ ...prev, student_id: "" }));
+      }
+    } catch (error) {
+      console.error("Error checking student ID:", error);
+      if (error.response) {
+        // Server đã phản hồi với một mã lỗi
+        if (error.response.data && error.response.data.exists) {
+          // Server xác nhận mã tồn tại qua body của lỗi (vd: status 400/409 kèm exists:true)
+          setFormErrors((prev) => ({
+            ...prev,
+            student_id:
+              error.response.data.message || "Mã số sinh viên này đã tồn tại.",
+          }));
+        } else {
+          // Lỗi khác từ server
+          enqueueSnackbar(
+            `Lỗi từ máy chủ khi kiểm tra MSSV: ${
+              error.response.data?.message || error.response.status
+            }`,
+            { variant: "error" }
+          );
+        }
+      } else if (error.request) {
+        // Yêu cầu đã được gửi nhưng không nhận được phản hồi
+        enqueueSnackbar("Không thể kết nối đến máy chủ để kiểm tra MSSV.", {
+          variant: "error",
+        });
+      } else {
+        // Lỗi khác khi thiết lập yêu cầu
+        enqueueSnackbar("Có lỗi xảy ra khi kiểm tra MSSV.", {
+          variant: "error",
+        });
+      }
+    } finally {
+      setIsCheckingStudentId(false);
+    }
+  };
+
+  const checkTeacherCodeExists = async (teacherCode) => {
+    if (!teacherCode || teacherCode.trim() === "") {
+      setFormErrors((prev) => ({ ...prev, teacher_code: "" })); // Xóa lỗi nếu rỗng
+      return;
+    }
+    setIsCheckingTeacherCode(true);
+    try {
+      const response = await axios.get(
+        `${API_URL}/users/check-identifier?type=teacherCode&value=${teacherCode}`
+      );
+      // API nên trả về 200 OK và dùng response.data.exists
+      if (response.data.exists) {
+        setFormErrors((prev) => ({
+          ...prev,
+          teacher_code:
+            response.data.message || "Mã giảng viên này đã tồn tại.",
+        }));
+      } else {
+        setFormErrors((prev) => ({ ...prev, teacher_code: "" }));
+      }
+    } catch (error) {
+      console.error("Error checking teacher code:", error);
+      if (error.response) {
+        // Server đã phản hồi với một mã lỗi
+        if (error.response.data && error.response.data.exists) {
+          // Server xác nhận mã tồn tại qua body của lỗi (vd: status 400/409 kèm exists:true)
+          setFormErrors((prev) => ({
+            ...prev,
+            teacher_code:
+              error.response.data.message || "Mã giảng viên này đã tồn tại.",
+          }));
+        } else {
+          // Lỗi khác từ server
+          enqueueSnackbar(
+            `Lỗi từ máy chủ khi kiểm tra MGV: ${
+              error.response.data?.message || error.response.status
+            }`,
+            { variant: "error" }
+          );
+        }
+      } else if (error.request) {
+        // Yêu cầu đã được gửi nhưng không nhận được phản hồi
+        enqueueSnackbar("Không thể kết nối đến máy chủ để kiểm tra MGV.", {
+          variant: "error",
+        });
+      } else {
+        // Lỗi khác khi thiết lập yêu cầu
+        enqueueSnackbar("Có lỗi xảy ra khi kiểm tra MGV.", {
+          variant: "error",
+        });
+      }
+    } finally {
+      setIsCheckingTeacherCode(false);
+    }
+  };
+
+  // Sử dụng useCallback để tránh tạo lại hàm debounced mỗi lần render
+  const debouncedCheckStudentId = React.useCallback(
+    debouncedCheck(checkStudentIdExists, 500),
+    []
+  );
+  const debouncedCheckTeacherCode = React.useCallback(
+    debouncedCheck(checkTeacherCodeExists, 500),
+    []
+  );
+
+  const handleStudentIdBlur = (e) => {
+    const studentId = e.target.value;
+    if (studentId.trim()) {
+      debouncedCheckStudentId(studentId);
+    } else {
+      setFormErrors((prev) => ({
+        ...prev,
+        student_id: "Mã số sinh viên là bắt buộc",
+      }));
+    }
+  };
+
+  const handleTeacherCodeBlur = (e) => {
+    const teacherCode = e.target.value;
+    if (teacherCode.trim()) {
+      debouncedCheckTeacherCode(teacherCode);
+    } else {
+      setFormErrors((prev) => ({
+        ...prev,
+        teacher_code: "Mã giảng viên là bắt buộc",
+      }));
+    }
+  };
+
   const handleRoleSelect = (role) => {
     setFormData({ ...formData, role });
     setFormErrors({ ...formErrors, role: "" });
@@ -323,9 +483,13 @@ const CompleteRegistrationPage = () => {
       errors.fullName = "Họ và tên là bắt buộc";
       isValid = false;
     }
-    // Validate phone (ví dụ: không rỗng)
+    // Validate phone (ví dụ: không rỗng và đúng định dạng cơ bản)
     if (!formData.phone.trim()) {
       errors.phone = "Số điện thoại là bắt buộc";
+      isValid = false;
+    } else if (!/^0\d{9}$/.test(formData.phone)) {
+      // Ví dụ: 0 gefolgt von 9 Ziffern
+      errors.phone = "Số điện thoại không hợp lệ";
       isValid = false;
     }
     // Validate address (ví dụ: không rỗng)
@@ -358,11 +522,27 @@ const CompleteRegistrationPage = () => {
       }
     }
 
-    if (!isFaceRegistrationComplete) {
+    // Kiểm tra lỗi từ API (nếu có)
+    if (
+      formErrors.student_id &&
+      formErrors.student_id !== "Mã số sinh viên là bắt buộc"
+    ) {
+      errors.student_id = formErrors.student_id;
+      isValid = false;
+    }
+    if (
+      formErrors.teacher_code &&
+      formErrors.teacher_code !== "Mã giảng viên là bắt buộc"
+    ) {
+      errors.teacher_code = formErrors.teacher_code;
+      isValid = false;
+    }
+
+    if (enableFaceRegistration && !isFaceRegistrationComplete) {
       enqueueSnackbar("Vui lòng hoàn tất đăng ký khuôn mặt.", {
         variant: "warning",
       });
-      // isValid = false; // Tùy theo yêu cầu có bắt buộc khuôn mặt ngay không
+      isValid = false; // Nếu đã bật tùy chọn thì bắt buộc
     }
 
     setFormErrors(errors);
@@ -383,69 +563,98 @@ const CompleteRegistrationPage = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    // Chạy validateForm trước
     if (!validateForm()) {
       enqueueSnackbar("Vui lòng kiểm tra lại thông tin đã nhập.", {
         variant: "warning",
       });
       return;
     }
-    setIsLoading(true);
 
-    const submissionData = {
-      email,
-      googleId,
-      fullName: formData.fullName,
-      role: formData.role,
-      avatarUrl: avatar,
-      contact: {
-        phone: formData.phone,
-        address: formData.address,
-      },
-      faceFeatures: faceData ? { descriptors: faceData } : undefined,
-      school_info: {},
-    };
-
-    if (formData.role === "student") {
-      submissionData.school_info.student_id = formData.student_id;
-      submissionData.school_info.class_id = formData.class_id;
-      if (formData.year) {
-        // Gửi cả năm học nếu có
-        submissionData.school_info.year = parseInt(formData.year, 10);
-      }
-      // department_id và major_id sẽ được suy ra từ class_id ở backend
-      // nên không cần gửi trực tiếp từ đây cho student
-    } else if (formData.role === "teacher") {
-      submissionData.school_info.teacher_code = formData.teacher_code;
-      submissionData.school_info.department_id = formData.department_id; // GV có department_id trực tiếp
+    // Sau đó, kiểm tra lại các lỗi API một lần nữa trước khi submit
+    // Vì validateForm có thể đã reset một số lỗi đó nếu trường rỗng
+    if (formData.role === "student" && formData.student_id.trim()) {
+      await checkStudentIdExists(formData.student_id); // Chờ kết quả
+    }
+    if (formData.role === "teacher" && formData.teacher_code.trim()) {
+      await checkTeacherCodeExists(formData.teacher_code); // Chờ kết quả
     }
 
-    try {
-      const response = await axios.post(
-        `${API_URL}/auth/google-complete`,
-        submissionData
-      );
+    // Kiểm tra lại formErrors sau khi các hàm check chạy xong
+    // (Cần state formErrors cập nhật xong)
+    // Sử dụng một timeout nhỏ để đảm bảo state đã cập nhật
+    setTimeout(async () => {
+      if (formErrors.student_id || formErrors.teacher_code) {
+        enqueueSnackbar(
+          "Mã sinh viên hoặc mã giảng viên đã tồn tại hoặc không hợp lệ.",
+          {
+            variant: "error",
+          }
+        );
+        setIsLoading(false); // Reset isLoading nếu có lỗi
+        return;
+      }
 
-      if (response.data.success) {
-        dispatch(
-          setCredentials({
-            token: response.data.token,
-            user: response.data.user,
-          })
+      setIsLoading(true);
+
+      const submissionData = {
+        email,
+        googleId,
+        fullName: formData.fullName,
+        role: formData.role,
+        avatarUrl: avatar,
+        contact: {
+          phone: formData.phone,
+          address: formData.address,
+        },
+        faceFeatures:
+          enableFaceRegistration && faceData
+            ? { descriptors: faceData }
+            : undefined,
+        school_info: {},
+      };
+
+      if (formData.role === "student") {
+        submissionData.school_info.student_id = formData.student_id;
+        submissionData.school_info.class_id = formData.class_id;
+        if (formData.year) {
+          submissionData.school_info.year = parseInt(formData.year, 10);
+        }
+      } else if (formData.role === "teacher") {
+        submissionData.school_info.teacher_code = formData.teacher_code;
+        submissionData.school_info.department_id = formData.department_id;
+      }
+
+      try {
+        const response = await axios.post(
+          `${API_URL}/auth/google-complete`,
+          submissionData
         );
 
-        enqueueSnackbar(response.data.message || "Đăng ký thành công!", {
-          variant: "success",
-        });
-
-        // Chuyển hướng đến trang chờ phê duyệt
-        navigate(`/pending-approval?role=${formData.role}`);
+        if (response.data.success) {
+          dispatch(
+            setCredentials({
+              token: response.data.token,
+              user: response.data.user,
+            })
+          );
+          enqueueSnackbar(response.data.message || "Đăng ký thành công!", {
+            variant: "success",
+          });
+          navigate(`/pending-approval?role=${formData.role}`);
+        } else {
+          enqueueSnackbar(response.data.message || "Đăng ký thất bại", {
+            variant: "error",
+          });
+        }
+      } catch (error) {
+        const errorMessage =
+          error.response?.data?.message || "Đăng ký thất bại";
+        enqueueSnackbar(errorMessage, { variant: "error" });
+      } finally {
+        setIsLoading(false);
       }
-    } catch (error) {
-      const errorMessage = error.response?.data?.message || "Đăng ký thất bại";
-      enqueueSnackbar(errorMessage, { variant: "error" });
-    } finally {
-      setIsLoading(false);
-    }
+    }, 0); // Sử dụng timeout 0 để chờ state cập nhật
   };
 
   // Hiển thị trang chọn vai trò
@@ -697,9 +906,13 @@ const CompleteRegistrationPage = () => {
                   name="student_id"
                   value={formData.student_id}
                   onChange={handleChange}
+                  onBlur={handleStudentIdBlur}
                   error={!!formErrors.student_id}
-                  helperText={formErrors.student_id}
-                  disabled={isLoading}
+                  helperText={
+                    formErrors.student_id ||
+                    (isCheckingStudentId ? "Đang kiểm tra..." : "")
+                  }
+                  disabled={isLoading || isCheckingStudentId}
                 />
               </Grid>
 
@@ -729,6 +942,59 @@ const CompleteRegistrationPage = () => {
                   variant="filled"
                 />
               </Grid>
+
+              <Grid item xs={12}>
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={enableFaceRegistration}
+                      onChange={(e) =>
+                        setEnableFaceRegistration(e.target.checked)
+                      }
+                      name="enableFaceRegistration"
+                      color="primary"
+                    />
+                  }
+                  label="Đăng ký khuôn mặt (khuyến nghị)"
+                  sx={{ mt: 2, mb: 1 }}
+                />
+              </Grid>
+
+              {enableFaceRegistration && (
+                <Accordion
+                  expanded={faceRegistrationExpanded}
+                  onChange={() =>
+                    setFaceRegistrationExpanded(!faceRegistrationExpanded)
+                  }
+                  sx={{ mt: 1 }} // Giảm margin top một chút
+                >
+                  <AccordionSummary expandIcon={<ExpandMore />}>
+                    <Box sx={{ display: "flex", alignItems: "center" }}>
+                      <Face sx={{ mr: 1 }} />
+                      <Typography>Đăng ký khuôn mặt</Typography>
+                      {isFaceRegistrationComplete && (
+                        <Chip
+                          label="Đã hoàn tất chụp ảnh"
+                          color="success"
+                          size="small"
+                          sx={{ ml: 2 }}
+                          icon={<Check fontSize="small" />}
+                        />
+                      )}
+                    </Box>
+                  </AccordionSummary>
+                  <AccordionDetails>
+                    <Alert severity="info" sx={{ mb: 2 }}>
+                      Đăng ký khuôn mặt sẽ giúp giảng viên xác nhận danh tính và
+                      sử dụng cho điểm danh tự động.
+                    </Alert>
+                    <FaceRegistrationComponent
+                      onFaceDataCapture={handleFaceDataCapture}
+                      requiredImages={REQUIRED_IMAGES}
+                    />
+                  </AccordionDetails>
+                </Accordion>
+              )}
             </>
           )}
 
@@ -768,53 +1034,20 @@ const CompleteRegistrationPage = () => {
                 name="teacher_code" // Đổi tên
                 value={formData.teacher_code}
                 onChange={handleChange}
+                onBlur={handleTeacherCodeBlur}
                 fullWidth
                 margin="normal"
                 required
                 error={!!formErrors.teacher_code}
-                helperText={formErrors.teacher_code}
-                disabled={isLoading}
+                helperText={
+                  formErrors.teacher_code ||
+                  (isCheckingTeacherCode ? "Đang kiểm tra..." : "")
+                }
+                disabled={isLoading || isCheckingTeacherCode}
               />
             </>
           )}
         </Grid>
-
-        {/* Accordion for Face Registration - Conditionally render based on role */}
-        {formData.role === "student" && (
-          <Accordion
-            expanded={faceRegistrationExpanded}
-            onChange={() =>
-              setFaceRegistrationExpanded(!faceRegistrationExpanded)
-            }
-            sx={{ mt: 3 }}
-          >
-            <AccordionSummary expandIcon={<ExpandMore />}>
-              <Box sx={{ display: "flex", alignItems: "center" }}>
-                <Face sx={{ mr: 1 }} />
-                <Typography>Đăng ký khuôn mặt (tùy chọn)</Typography>
-                {isFaceRegistrationComplete && (
-                  <Chip
-                    label="Đã hoàn tất chụp ảnh"
-                    color="success"
-                    size="small"
-                    sx={{ ml: 2 }}
-                    icon={<Check fontSize="small" />}
-                  />
-                )}
-              </Box>
-            </AccordionSummary>
-            <AccordionDetails>
-              <Alert severity="info" sx={{ mb: 2 }}>
-                Đăng ký khuôn mặt sẽ giúp giảng viên xác nhận danh tính và sử
-                dụng cho điểm danh tự động.
-              </Alert>
-              <FaceRegistrationComponent
-                onFaceDataCapture={handleFaceDataCapture}
-                requiredImages={REQUIRED_IMAGES}
-              />
-            </AccordionDetails>
-          </Accordion>
-        )}
 
         <Box sx={{ mt: 3, display: "flex", justifyContent: "space-between" }}>
           <Button variant="outlined" onClick={() => setShowRoleSelection(true)}>
