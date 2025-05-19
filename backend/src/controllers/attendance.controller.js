@@ -5,6 +5,7 @@ const {
   StudentScore,
   User,
 } = require("../models/schemas");
+const { deleteImageFromCloudinary } = require("../utils/cloudinary"); // Import hàm xóa ảnh
 
 // @desc    Tạo phiên điểm danh mới
 // @route   POST /api/attendance/sessions
@@ -1239,6 +1240,179 @@ exports.createAttendanceLog = async (req, res) => {
       success: false,
       message: "Lỗi máy chủ",
       error: error.message,
+    });
+  }
+};
+
+// @desc    Xóa một log điểm danh cụ thể
+// @route   DELETE /api/attendance/logs/:logId
+// @access  Private (Chỉ giáo viên của lớp hoặc admin)
+exports.deleteAttendanceLog = async (req, res) => {
+  const { logId } = req.params;
+
+  try {
+    const logToDelete = await AttendanceLog.findById(logId);
+
+    if (!logToDelete) {
+      return res.status(404).json({
+        success: false,
+        message: "Không tìm thấy log điểm danh.",
+      });
+    }
+
+    const { student_id, session_id } = logToDelete;
+
+    // Kiểm tra quyền: User phải là admin hoặc giáo viên của lớp gắn với session đó
+    const relatedSessionForPermission = await AttendanceSession.findById(
+      session_id
+    ).populate("teaching_class_id");
+
+    if (!relatedSessionForPermission) {
+      return res.status(404).json({
+        success: false,
+        message: "Không tìm thấy buổi học liên quan đến log này.",
+      });
+    }
+
+    const teachingClassForPermission =
+      relatedSessionForPermission.teaching_class_id;
+    if (!teachingClassForPermission) {
+      return res.status(404).json({
+        success: false,
+        message: "Không tìm thấy lớp học liên quan đến buổi học này.",
+      });
+    }
+
+    const isTeacherOfClass =
+      teachingClassForPermission.teacher_id.toString() === req.user.id;
+    const isAdmin = req.user.role === "admin";
+
+    if (!isTeacherOfClass && !isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: "Bạn không có quyền xóa log điểm danh này.",
+      });
+    }
+
+    // 1. Xóa ảnh trên Cloudinary nếu có
+    if (logToDelete.captured_face_image_cloudinary_public_id) {
+      try {
+        console.log(
+          `Đang xóa ảnh từ Cloudinary: ${logToDelete.captured_face_image_cloudinary_public_id}`
+        );
+        await deleteImageFromCloudinary(
+          logToDelete.captured_face_image_cloudinary_public_id
+        );
+      } catch (cloudinaryError) {
+        console.error(
+          "Lỗi khi xóa ảnh từ Cloudinary, nhưng vẫn tiếp tục xóa log:",
+          cloudinaryError
+        );
+        // Không chặn việc xóa log nếu xóa ảnh lỗi, nhưng cần ghi lại lỗi này
+      }
+    }
+
+    // 2. Xóa AttendanceLog
+    await AttendanceLog.findByIdAndDelete(logId);
+    console.log(`Đã xóa AttendanceLog ID: ${logId}`);
+
+    // 3. Cập nhật AttendanceSession
+    const attendanceSession = await AttendanceSession.findById(session_id);
+    if (!attendanceSession) {
+      console.error(
+        `Không tìm thấy AttendanceSession ID: ${session_id} sau khi xóa log. Dữ liệu có thể không nhất quán.`
+      );
+      return res.status(500).json({
+        success: false,
+        message: "Lỗi nghiêm trọng: Không tìm thấy session sau khi xóa log.",
+      });
+    }
+
+    // Kiểm tra xem sinh viên có còn log "present" hoặc "late_present" nào khác trong session này không
+    const remainingPresentLogsCount = await AttendanceLog.countDocuments({
+      session_id: session_id,
+      student_id: student_id,
+      status: { $in: ["present", "late_present"] },
+    });
+
+    let sessionUpdated = false;
+
+    if (remainingPresentLogsCount === 0) {
+      // Nếu không còn log present nào, sinh viên này nên là absent
+      const initialPresentCount = attendanceSession.students_present.length;
+      attendanceSession.students_present =
+        attendanceSession.students_present.filter(
+          (entry) => entry.student_id.toString() !== student_id.toString()
+        );
+      if (attendanceSession.students_present.length !== initialPresentCount) {
+        sessionUpdated = true;
+      }
+
+      const studentAlreadyAbsent = attendanceSession.students_absent.some(
+        (absentStudentId) =>
+          absentStudentId.toString() === student_id.toString()
+      );
+      if (!studentAlreadyAbsent) {
+        attendanceSession.students_absent.push(student_id);
+        sessionUpdated = true;
+      }
+      if (sessionUpdated) {
+        console.log(
+          `Sinh viên ${student_id} không còn log present nào trong session ${session_id}. Đã cập nhật session.`
+        );
+      }
+    } else {
+      // Nếu vẫn còn log present, đảm bảo sinh viên đó có trong students_present
+      const studentIsCurrentlyPresentInSession =
+        attendanceSession.students_present.some(
+          (entry) => entry.student_id.toString() === student_id.toString()
+        );
+      if (!studentIsCurrentlyPresentInSession) {
+        // Điều này có thể chỉ ra một sự không nhất quán trước đó, hoặc sinh viên đã bị chuyển sang absent
+        // và giờ cần chuyển lại thành present vì vẫn còn log present khác.
+        // Lấy một log present còn lại để có timestamp và check_type tham khảo (nếu cần thiết)
+        const referenceLog = await AttendanceLog.findOne({
+          session_id: session_id,
+          student_id: student_id,
+          status: { $in: ["present", "late_present"] },
+        }).sort({ timestamp: -1 });
+
+        attendanceSession.students_present.push({
+          student_id: student_id,
+          timestamp: referenceLog ? referenceLog.timestamp : new Date(),
+          check_type: referenceLog
+            ? referenceLog.recognized
+              ? "auto"
+              : "manual"
+            : "auto",
+        });
+        // Và đảm bảo xóa khỏi absent nếu có
+        attendanceSession.students_absent =
+          attendanceSession.students_absent.filter(
+            (absentStudentId) =>
+              absentStudentId.toString() !== student_id.toString()
+          );
+        sessionUpdated = true;
+        console.log(
+          `Sinh viên ${student_id} vẫn còn log present khác trong session ${session_id}. Đã đảm bảo là present trong session.`
+        );
+      }
+    }
+
+    if (sessionUpdated) {
+      await attendanceSession.save();
+      console.log(`Đã cập nhật AttendanceSession ID: ${session_id}`);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Log điểm danh đã được xóa thành công.",
+    });
+  } catch (error) {
+    console.error("Lỗi khi xóa log điểm danh:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Lỗi máy chủ khi xóa log điểm danh.",
     });
   }
 };

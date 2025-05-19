@@ -72,6 +72,7 @@ const CampusSchema = new Schema({
   },
   description: String,
   image_url: String,
+  image_public_id: String,
   status: {
     type: String,
     enum: ["active", "inactive", "under_construction"],
@@ -94,6 +95,7 @@ const BuildingSchema = new Schema({
   },
   facilities: [String], // Thang máy, WC, WiFi...
   image_url: String,
+  image_public_id: String,
   created_at: { type: Date, default: Date.now },
 });
 
@@ -122,6 +124,7 @@ const RoomSchema = new Schema({
     default: "available",
   },
   image_url: String,
+  image_public_id: String,
   created_at: { type: Date, default: Date.now },
 });
 
@@ -250,7 +253,7 @@ const AttendanceLogSchema = new Schema({
   student_id: { type: Schema.Types.ObjectId, ref: "User", required: true },
   status: {
     type: String,
-    enum: ["present", "absent"],
+    enum: ["present", "absent", "late_present"],
     default: "absent",
   },
   absence_request_id: {
@@ -259,7 +262,9 @@ const AttendanceLogSchema = new Schema({
     default: null,
   },
   recognized: { type: Boolean, default: false },
-  captured_face_url: String,
+  captured_face_image_local_url: String,
+  captured_face_image_cloudinary_url: String,
+  captured_face_image_cloudinary_public_id: String,
   recognized_confidence: Number,
   note: String,
   timestamp: { type: Date, default: Date.now },

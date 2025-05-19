@@ -41,6 +41,7 @@ const FaceRegistrationComponent = ({
   // Refs
   const webcamRef = useRef(null);
   const canvasRef = useRef(null);
+  const isMountedRef = useRef(false);
 
   // State
   const [modelsLoaded, setModelsLoaded] = useState(false);
@@ -88,9 +89,12 @@ const FaceRegistrationComponent = ({
 
   // 3. Real-time landmark drawing effect
   useEffect(() => {
+    isMountedRef.current = true;
     let animationFrameId;
 
     const runFaceDetection = async () => {
+      if (!isMountedRef.current) return;
+
       if (
         webcamRef.current &&
         webcamRef.current.video &&
@@ -100,52 +104,91 @@ const FaceRegistrationComponent = ({
         showLandmarks &&
         !isProcessing
       ) {
+        if (!isMountedRef.current) return;
         const video = webcamRef.current.video;
         const canvas = canvasRef.current;
 
         if (video.readyState < 3) {
-          // Wait until video has enough data
           return;
         }
 
-        const displaySize = {
-          width: video.videoWidth,
-          height: video.videoHeight,
-        };
-        if (
-          canvas.width !== displaySize.width ||
-          canvas.height !== displaySize.height
-        ) {
-          faceapi.matchDimensions(canvas, displaySize);
-        }
-
         try {
+          if (!isMountedRef.current) return;
+          const displaySize = {
+            width: video.videoWidth,
+            height: video.videoHeight,
+          };
+
+          if (displaySize.width === 0 || displaySize.height === 0) {
+            return;
+          }
+
+          if (!isMountedRef.current || !canvasRef.current) return;
+
+          if (
+            canvas.width !== displaySize.width ||
+            canvas.height !== displaySize.height
+          ) {
+            faceapi.matchDimensions(canvas, displaySize);
+          }
+
+          if (!isMountedRef.current) return;
+
           const detections = await faceapi
             .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
             .withFaceLandmarks();
 
+          if (!isMountedRef.current || !canvasRef.current) return;
+
           const ctx = canvas.getContext("2d");
+          if (!ctx) return;
+
           ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-          if (detections) {
+          if (
+            detections &&
+            detections.detection &&
+            detections.detection.box &&
+            typeof detections.detection.box.x === "number" &&
+            typeof detections.detection.box.y === "number" &&
+            typeof detections.detection.box.width === "number" &&
+            typeof detections.detection.box.height === "number" &&
+            detections.detection.box.width > 0 &&
+            detections.detection.box.height > 0
+          ) {
             const resizedDetections = faceapi.resizeResults(
               detections,
               displaySize
             );
+            if (!isMountedRef.current || !canvasRef.current) return;
             faceapi.draw.drawFaceLandmarks(canvas, resizedDetections);
           } else {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if (isMountedRef.current && canvasRef.current) {
+              const currentCtx = canvasRef.current.getContext("2d");
+              if (currentCtx) {
+                currentCtx.clearRect(
+                  0,
+                  0,
+                  canvasRef.current.width,
+                  canvasRef.current.height
+                );
+              }
+            }
           }
         } catch (error) {
-          // Don't spam console if detection fails occasionally
-          // console.error("Error in real-time detection loop:", error);
+          // Lỗi được bắt ở đây, không cần log ra console để tránh spam
+          // Nếu lỗi là do unmount, chúng ta muốn nó được bỏ qua một cách thầm lặng
+          // console.warn("Silent error in runFaceDetection:", error); // For debugging if needed
         }
       }
     };
 
     const detectionLoop = () => {
+      if (!isMountedRef.current) return;
       runFaceDetection().finally(() => {
-        animationFrameId = requestAnimationFrame(detectionLoop);
+        if (isMountedRef.current) {
+          animationFrameId = requestAnimationFrame(detectionLoop);
+        }
       });
     };
 
@@ -169,19 +212,27 @@ const FaceRegistrationComponent = ({
 
     // Cleanup function
     return () => {
+      isMountedRef.current = false; // Component unmount hoặc effect sắp re-run
       try {
         if (animationFrameId) {
           cancelAnimationFrame(animationFrameId);
         }
-        // Clear canvas if it exists
+
+        // Chỉ xóa canvas, không dừng video stream ở đây nữa.
+        // Webcam component sẽ tự quản lý stream của nó.
         if (canvasRef.current) {
           const canvas = canvasRef.current;
-          const ctx = canvas.getContext("2d");
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          // Kiểm tra canvas và context trước khi thao tác để tránh lỗi
+          if (canvas && typeof canvas.getContext === "function") {
+            const ctx = canvas.getContext("2d");
+            if (ctx) {
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+          }
         }
       } catch (error) {
-        console.error("[FaceComponent] Error during cleanup:", error);
         // Silently handle cleanup errors
+        // console.error("[FaceComponent] Error during landmark cleanup:", error);
       }
     };
   }, [

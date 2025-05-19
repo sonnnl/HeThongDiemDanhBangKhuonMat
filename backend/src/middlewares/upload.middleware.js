@@ -25,27 +25,12 @@ const upload = multer({
   fileFilter: fileFilter,
 });
 
-// Middleware để upload một file ảnh lên Cloudinary
+// Middleware để upload một file ảnh lên Cloudinary cho Absence Evidence (GIỮ NGUYÊN)
 // Sẽ thêm trường `file_url` vào `req` nếu upload thành công
 const uploadToCloudinary = (fieldName = "evidence_image") => {
   return (req, res, next) => {
-    // Sử dụng multer để xử lý file từ fieldName
     upload.single(fieldName)(req, res, async (err) => {
-      console.log(
-        `Middleware uploadToCloudinary for field "${fieldName}" triggered.`
-      );
-      if (req.file) {
-        console.log(
-          "File received by multer:",
-          req.file.originalname,
-          req.file.mimetype
-        );
-      } else {
-        console.log("No file received by multer for this request.");
-      }
-
       if (err) {
-        // Xử lý lỗi từ multer (ví dụ: file quá lớn, sai định dạng)
         let errorMessage = "Lỗi upload file.";
         if (err instanceof multer.MulterError) {
           if (err.code === "LIMIT_FILE_SIZE") {
@@ -54,50 +39,34 @@ const uploadToCloudinary = (fieldName = "evidence_image") => {
             errorMessage = err.message;
           }
         } else if (err.message) {
-          errorMessage = err.message; // Lỗi từ fileFilter
+          errorMessage = err.message;
         }
-        console.error("Multer error:", errorMessage);
         return res.status(400).json({ success: false, message: errorMessage });
       }
 
-      // Nếu không có file nào được upload (có thể là optional field)
       if (!req.file) {
-        // Nếu field này là bắt buộc, bạn có thể trả lỗi ở đây
-        // Hoặc nếu là optional thì gọi next()
         return next();
       }
 
       try {
-        // Upload file từ buffer lên Cloudinary
-        // Tạo một stream từ buffer của file
         const uploadStream = cloudinary.uploader.upload_stream(
           {
-            folder: "absence_evidence", // Thư mục trên Cloudinary để lưu ảnh
+            folder: "absence_evidence",
             resource_type: "image",
-            // public_id: `evidence_${Date.now()}` // Tùy chọn: đặt tên file cụ thể
           },
           (error, result) => {
             if (error) {
-              console.error("Cloudinary Upload Error inside callback:", error);
               return res.status(500).json({
                 success: false,
                 message: "Lỗi khi upload ảnh bằng chứng lên cloud.",
               });
             }
-            console.log("Cloudinary Upload Result:", result);
             req.file_url = result.secure_url;
-            console.log("Assigned req.file_url:", req.file_url);
             next();
           }
         );
-        // Ghi buffer vào stream để upload
-        console.log(
-          "Attempting to upload file to Cloudinary:",
-          req.file.originalname
-        );
         uploadStream.end(req.file.buffer);
       } catch (uploadError) {
-        console.error("Server Error during Cloudinary Upload:", uploadError);
         res.status(500).json({
           success: false,
           message: "Lỗi máy chủ khi upload ảnh.",
@@ -107,4 +76,77 @@ const uploadToCloudinary = (fieldName = "evidence_image") => {
   };
 };
 
-module.exports = { uploadToCloudinary, upload }; // Export cả upload nếu muốn dùng multer riêng
+/**
+ * Middleware tạo hàm upload file ảnh lên Cloudinary với cấu hình tùy chọn.
+ * @param {object} options - Tùy chọn cho middleware.
+ * @param {string} options.fieldName - Tên trường file trong form data.
+ * @param {string} options.cloudFolder - Tên thư mục trên Cloudinary để lưu file.
+ * @returns Middleware function
+ */
+const createConfigurableUploader = ({ fieldName, cloudFolder }) => {
+  if (!fieldName || !cloudFolder) {
+    throw new Error(
+      "fieldName và cloudFolder là bắt buộc cho createConfigurableUploader"
+    );
+  }
+  return (req, res, next) => {
+    upload.single(fieldName)(req, res, async (err) => {
+      if (err) {
+        let errorMessage = "Lỗi upload file.";
+        if (err instanceof multer.MulterError) {
+          if (err.code === "LIMIT_FILE_SIZE") {
+            errorMessage = "Kích thước file quá lớn (tối đa 5MB).";
+          } else {
+            errorMessage = err.message;
+          }
+        } else if (err.message) {
+          errorMessage = err.message;
+        }
+        return res.status(400).json({ success: false, message: errorMessage });
+      }
+
+      if (!req.file) {
+        return next();
+      }
+
+      try {
+        const uploadStream = cloudinary.uploader.upload_stream(
+          {
+            folder: cloudFolder,
+            resource_type: "image",
+          },
+          (error, result) => {
+            if (error) {
+              console.error(
+                `Cloudinary Upload Error for ${fieldName} to ${cloudFolder}:`,
+                error
+              );
+              return res.status(500).json({
+                success: false,
+                message: "Lỗi khi upload ảnh lên cloud.",
+              });
+            }
+            req.uploadedCloudinaryFile = {
+              url: result.secure_url,
+              public_id: result.public_id,
+              original_filename: req.file.originalname,
+            };
+            next();
+          }
+        );
+        uploadStream.end(req.file.buffer);
+      } catch (uploadError) {
+        console.error(
+          `Server Error during Cloudinary Upload for ${fieldName} to ${cloudFolder}:`,
+          uploadError
+        );
+        res.status(500).json({
+          success: false,
+          message: "Lỗi máy chủ khi upload ảnh.",
+        });
+      }
+    });
+  };
+};
+
+module.exports = { uploadToCloudinary, upload, createConfigurableUploader }; // Export thêm middleware mới

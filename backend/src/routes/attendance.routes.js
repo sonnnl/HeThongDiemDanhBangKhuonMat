@@ -89,4 +89,14 @@ router.post(
   attendanceController.createAttendanceLog
 );
 
+// @route   DELETE /api/attendance/logs/:logId
+// @desc    Xóa một log điểm danh cụ thể (ví dụ: do nhận diện sai)
+// @access  Private (Chỉ giáo viên của lớp hoặc admin)
+router.delete(
+  "/logs/:logId",
+  protect,
+  authorize("teacher", "admin"), // Sẽ cần logic kiểm tra chi tiết hơn trong controller
+  attendanceController.deleteAttendanceLog
+);
+
 module.exports = router;

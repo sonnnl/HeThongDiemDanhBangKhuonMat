@@ -2,6 +2,25 @@ const express = require("express");
 const router = express.Router();
 const facilityController = require("../controllers/facility.controller");
 const { protect, authorize } = require("../middlewares/auth.middleware");
+const {
+  createConfigurableUploader,
+} = require("../middlewares/upload.middleware");
+
+// Middleware upload cho từng loại
+const campusImageUploader = createConfigurableUploader({
+  fieldName: "imageFile",
+  cloudFolder: "facilities/campuses",
+});
+
+const buildingImageUploader = createConfigurableUploader({
+  fieldName: "imageFile",
+  cloudFolder: "facilities/buildings",
+});
+
+const roomImageUploader = createConfigurableUploader({
+  fieldName: "imageFile",
+  cloudFolder: "facilities/rooms",
+});
 
 // Campus routes
 // @route   GET /api/facilities/campus
@@ -15,6 +34,7 @@ router.post(
   "/campuses",
   protect,
   authorize(["admin"]),
+  campusImageUploader,
   facilityController.createCampus
 );
 
@@ -23,6 +43,7 @@ router.put(
   "/campuses/:id",
   protect,
   authorize(["admin"]),
+  campusImageUploader,
   facilityController.updateCampus
 );
 
@@ -53,6 +74,7 @@ router.post(
   "/buildings",
   protect,
   authorize(["admin"]),
+  buildingImageUploader,
   facilityController.createBuilding
 );
 
@@ -61,6 +83,7 @@ router.put(
   "/buildings/:id",
   protect,
   authorize(["admin"]),
+  buildingImageUploader,
   facilityController.updateBuilding
 );
 
@@ -91,6 +114,7 @@ router.post(
   "/rooms",
   protect,
   authorize(["admin"]),
+  roomImageUploader,
   facilityController.createRoom
 );
 
@@ -99,6 +123,7 @@ router.put(
   "/rooms/:id",
   protect,
   authorize(["admin"]),
+  roomImageUploader,
   facilityController.updateRoom
 );
 

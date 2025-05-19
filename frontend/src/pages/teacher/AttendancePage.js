@@ -57,6 +57,7 @@ import {
   CheckCircle,
   Cancel,
   PersonAdd,
+  Clear as ClearIcon,
 } from "@mui/icons-material";
 import {
   setModelLoaded as setFaceRecModelLoaded, // Rename to avoid conflict
@@ -125,7 +126,7 @@ const loadFaceRecognitionModels = async (
     enqueueSnackbar("Tải mô hình nhận diện thành công", { variant: "success" });
     return true;
   } catch (error) {
-    console.error("Lỗi khi tải mô hình:", error);
+    // console.error("Lỗi khi tải mô hình:", error); // Giữ lại lỗi này nếu cần thiết cho production debugging
     if (loadingSnackbarKey) closeSnackbar(loadingSnackbarKey); // Đóng snackbar "Đang tải..." khi có lỗi
     enqueueSnackbar("Không thể tải mô hình nhận diện", { variant: "error" });
     dispatch(setFaceRecModelLoaded(false)); // Ensure state reflects failure
@@ -229,6 +230,10 @@ const AttendancePage = () => {
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState(null);
 
+  // State cho dialog xác nhận xóa log
+  const [deleteLogDialogOpen, setDeleteLogDialogOpen] = useState(false);
+  const [logToDelete, setLogToDelete] = useState(null);
+
   // Redux State
   const { token } = useSelector((state) => state.auth);
   const {
@@ -309,7 +314,7 @@ const AttendancePage = () => {
         refreshAttendanceLogs();
       }
     } catch (error) {
-      console.error("Lỗi khi điểm danh thủ công:", error);
+      // console.error("Lỗi khi điểm danh thủ công:", error); // Có thể giữ lại nếu cần thiết
       enqueueSnackbar(error.message || "Lỗi khi điểm danh thủ công", {
         variant: "error",
       });
@@ -344,18 +349,18 @@ const AttendancePage = () => {
 
       // Cập nhật điểm danh nếu duyệt đơn
       if (newStatus === "approved") {
-        console.log(
-          "[DEBUG AttendancePage] Absence Request Object (request):",
-          JSON.stringify(request, null, 2)
-        );
-        console.log(
-          "[DEBUG AttendancePage] request.student_id:",
-          request.student_id
-        );
-        console.log(
-          "[DEBUG AttendancePage] request.student_id._id:",
-          request.student_id?._id
-        );
+        // console.log(
+        //   "[DEBUG AttendancePage] Absence Request Object (request):",
+        //   JSON.stringify(request, null, 2)
+        // );
+        // console.log(
+        //   "[DEBUG AttendancePage] request.student_id:",
+        //   request.student_id
+        // );
+        // console.log(
+        //   "[DEBUG AttendancePage] request.student_id._id:",
+        //   request.student_id?._id
+        // );
 
         await dispatch(
           manualAttendance({
@@ -380,7 +385,7 @@ const AttendancePage = () => {
       fetchAbsenceRequests(); // Tải lại danh sách đơn của session này
       refreshAttendanceLogs(); // Tải lại logs điểm danh
     } catch (error) {
-      console.error("Lỗi khi xử lý đơn:", error);
+      // console.error("Lỗi khi xử lý đơn:", error); // Có thể giữ lại nếu cần thiết
       enqueueSnackbar(
         error.response?.data?.message || "Lỗi khi xử lý đơn xin nghỉ",
         { variant: "error" }
@@ -448,7 +453,7 @@ const AttendancePage = () => {
           await dispatch(getClassFaceFeatures(classId)).unwrap();
         }
       } catch (error) {
-        console.error("Lỗi khi tải dữ liệu:", error);
+        // console.error("Lỗi khi tải dữ liệu:", error); // Có thể giữ lại nếu cần thiết
         const errMsg =
           error.response?.data?.message ||
           error.message ||
@@ -503,7 +508,7 @@ const AttendancePage = () => {
         setManualDialogOpen(false);
       } catch (error) {
         // Bỏ qua lỗi khi cleanup
-        console.log("Đã bỏ qua lỗi cleanup");
+        // console.log("Đã bỏ qua lỗi cleanup");
       }
     };
     // Ensure isModelLoaded is a dependency to refetch features if model loads later
@@ -554,7 +559,6 @@ const AttendancePage = () => {
 
   const handleUserMedia = useCallback(
     (stream) => {
-      // console.log("Camera đã được cấp quyền và khởi tạo:", stream.id);
       dispatch(setFaceRecCameraReady(true));
       setComponentError(null); // Clear camera errors
     },
@@ -563,7 +567,7 @@ const AttendancePage = () => {
 
   const handleUserMediaError = useCallback(
     (error) => {
-      console.error("Lỗi khi truy cập camera:", error);
+      // console.error("Lỗi khi truy cập camera:", error); // Có thể giữ lại nếu cần thiết
       const errMsg = `Không thể truy cập camera: ${
         error.name === "NotAllowedError"
           ? "Bạn chưa cấp quyền truy cập camera"
@@ -599,10 +603,10 @@ const AttendancePage = () => {
       resizedDetections.forEach((detection, i) => {
         // Validate detection and box before drawing
         if (!detection || !detection.detection || !detection.detection.box) {
-          console.warn(
-            "Skipping drawing for invalid detection object:",
-            detection
-          );
+          // console.warn(
+          //   "Skipping drawing for invalid detection object:",
+          //   detection
+          // );
           return; // Skip this detection
         }
 
@@ -617,7 +621,7 @@ const AttendancePage = () => {
           box.width <= 0 ||
           box.height <= 0
         ) {
-          console.warn("Skipping drawing for invalid box properties:", box);
+          // console.warn("Skipping drawing for invalid box properties:", box);
           return; // Skip this detection
         }
 
@@ -752,7 +756,7 @@ const AttendancePage = () => {
 
         return { detections: faceData, recognized: recognizedData }; // Return both detection and recognition results
       } catch (error) {
-        console.error("Lỗi khi phát hiện/nhận diện khuôn mặt:", error);
+        // console.error("Lỗi khi phát hiện/nhận diện khuôn mặt:", error); // Có thể giữ lại
         enqueueSnackbar("Lỗi trong quá trình xử lý khuôn mặt", {
           variant: "error",
         });
@@ -869,7 +873,7 @@ const AttendancePage = () => {
         });
       }
     } catch (error) {
-      console.error("Lỗi khi chụp ảnh và nhận diện thủ công:", error);
+      // console.error("Lỗi khi chụp ảnh và nhận diện thủ công:", error); // Có thể giữ lại
       enqueueSnackbar(
         error.message || "Có lỗi xảy ra khi chụp ảnh và nhận diện thủ công.",
         { variant: "error" }
@@ -953,7 +957,7 @@ const AttendancePage = () => {
         });
       }
     } catch (error) {
-      console.error("Lỗi khi làm mới dữ liệu:", error);
+      // console.error("Lỗi khi làm mới dữ liệu:", error); // Có thể giữ lại
       enqueueSnackbar(
         error.response?.data?.message || "Lỗi khi làm mới dữ liệu",
         {
@@ -994,9 +998,35 @@ const AttendancePage = () => {
         for (const rec of result.recognized) {
           // Check if confidence meets or exceeds the threshold
           if (rec.confidence >= CONFIDENCE_THRESHOLD && rec.studentId) {
-            // Kiểm tra xem sinh viên đã được điểm danh gần đây chưa
+            // Kiểm tra xem sinh viên đã được điểm danh gần đây chưa (trong cooldown của recentlyChecked)
             if (recentlyChecked.has(rec.studentId)) {
-              continue; // Bỏ qua nếu mới điểm danh xong
+              // console.log(`[AutoAttend] Student ${rec.studentId} is in recentlyChecked cooldown. Skipping.`);
+              continue;
+            }
+
+            // Kiểm tra xem sinh viên đã có log 'present' trong attendanceLogs hay chưa
+            const existingPresentLog = attendanceLogs.find(
+              (log) =>
+                log.student_id?._id === rec.studentId &&
+                log.status === "present"
+            );
+
+            if (existingPresentLog) {
+              // const student = classStudents.find(
+              // (s) => s._id === rec.studentId
+              // );
+              // console.log(`[AutoAttend] Student ${student ? student.full_name : rec.studentId} already marked as present.`);
+              // Không cần thông báo liên tục nếu đã điểm danh, chỉ cần bỏ qua
+              // enqueueSnackbar(
+              //   `${student ? student.full_name : 'Sinh viên này'} đã được điểm danh trước đó.`,
+              //   { variant: "info", autoHideDuration: 2000, preventDuplicate: true }
+              // );
+              // Vẫn thêm vào recentlyChecked để tránh xử lý lại ngay lập tức nếu khuôn mặt vẫn còn đó
+              recentlyChecked.add(rec.studentId);
+              setTimeout(() => {
+                recentlyChecked.delete(rec.studentId);
+              }, COOLDOWN_TIME / 2); // Cooldown ngắn hơn cho trường hợp đã log, chỉ để tránh check DB liên tục
+              continue; // Bỏ qua, không dispatch verifyAttendance
             }
 
             // Find the corresponding descriptor and detection
@@ -1048,7 +1078,7 @@ const AttendancePage = () => {
                 // Refresh danh sách điểm danh
                 await refreshAttendanceLogs();
               } catch (error) {
-                console.error("Lỗi khi điểm danh tự động:", error);
+                // console.error("Lỗi khi điểm danh tự động:", error); // Có thể giữ lại
                 enqueueSnackbar(
                   `Lỗi khi điểm danh: ${error.message || "Không xác định"}`,
                   { variant: "error" }
@@ -1068,6 +1098,7 @@ const AttendancePage = () => {
     sessionId,
     enqueueSnackbar,
     refreshAttendanceLogs,
+    attendanceLogs, // Thêm attendanceLogs vào dependencies
   ]); // Added dependencies
 
   const stopAutoAttendance = useCallback(() => {
@@ -1121,7 +1152,7 @@ const AttendancePage = () => {
       enqueueSnackbar("Đã kết thúc phiên điểm danh", { variant: "success" });
       navigate(`/teacher/classes/${classId}`);
     } catch (error) {
-      console.error("Lỗi khi kết thúc phiên:", error);
+      // console.error("Lỗi khi kết thúc phiên:", error); // Có thể giữ lại
       enqueueSnackbar("Lỗi khi kết thúc phiên điểm danh", { variant: "error" });
     }
   };
@@ -1154,28 +1185,28 @@ const AttendancePage = () => {
   // Sửa lại hàm fetchAbsenceRequests
   const fetchAbsenceRequests = useCallback(async () => {
     try {
-      console.log("Fetching absence requests for session:", sessionId);
+      // console.log("Fetching absence requests for session:", sessionId);
       const response = await axios.get(
         `${API_URL}/absence-requests/session/${sessionId}`,
         {
           headers: { Authorization: `Bearer ${token}` },
         }
       );
-      console.log("Absence requests response:", response.data);
+      // console.log("Absence requests response:", response.data);
 
       if (response.data.success) {
         setLocalAbsenceRequests(response.data.data || []);
       } else {
-        console.error(
-          "Failed to fetch absence requests:",
-          response.data.message
-        );
+        // console.error(
+        //   "Failed to fetch absence requests:",
+        //   response.data.message
+        // );
         enqueueSnackbar("Không thể tải danh sách đơn xin nghỉ phép", {
           variant: "error",
         });
       }
     } catch (error) {
-      console.error("Error fetching absence requests:", error);
+      // console.error("Error fetching absence requests:", error); // Có thể giữ lại
       enqueueSnackbar("Lỗi khi tải danh sách đơn xin nghỉ phép", {
         variant: "error",
       });
@@ -1197,6 +1228,38 @@ const AttendancePage = () => {
     ) || [];
   const totalStudents = classInfo?.students?.length || 0;
   const sessionCompleted = sessionInfo?.status === "completed";
+
+  // --- Hàm xử lý xóa log ---
+  const handleDeleteLog = (log) => {
+    setLogToDelete(log);
+    setDeleteLogDialogOpen(true);
+  };
+
+  const handleCloseDeleteLogDialog = () => {
+    setLogToDelete(null);
+    setDeleteLogDialogOpen(false);
+  };
+
+  const confirmDeleteLog = async () => {
+    if (!logToDelete) return;
+    setIsProcessing(true);
+    try {
+      await axios.delete(`${API_URL}/attendance/logs/${logToDelete._id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      enqueueSnackbar("Xóa lượt điểm danh thành công!", { variant: "success" });
+      refreshAttendanceLogs(); // Tải lại danh sách
+    } catch (error) {
+      // console.error("Lỗi khi xóa log điểm danh:", error); // Có thể giữ lại
+      enqueueSnackbar(
+        error.response?.data?.message || "Lỗi khi xóa lượt điểm danh",
+        { variant: "error" }
+      );
+    } finally {
+      setIsProcessing(false);
+      handleCloseDeleteLogDialog();
+    }
+  };
 
   // --- Render Logic ---
 
@@ -1604,7 +1667,7 @@ const AttendancePage = () => {
                     align="center"
                     sx={{ py: 2 }}
                   >
-                    Tất cả sinh viên đã có mặt.
+                    Chưa có sinh viên nào được điểm danh có mặt.
                   </Typography>
                 ) : (
                   <List dense>
@@ -1613,16 +1676,34 @@ const AttendancePage = () => {
                         (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
                       ) // Sort by time desc
                       .map((log) => (
-                        // Simplified ListItem for debugging
-                        <ListItem key={log._id}>
+                        <ListItem
+                          key={log._id}
+                          secondaryAction={
+                            !sessionCompleted && ( // Chỉ hiển thị nút xóa nếu phiên chưa hoàn thành
+                              <Tooltip title="Xóa lượt điểm danh này">
+                                <IconButton
+                                  edge="end"
+                                  aria-label="delete"
+                                  onClick={() => handleDeleteLog(log)}
+                                  disabled={isProcessing}
+                                  size="small"
+                                >
+                                  <ClearIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            )
+                          }
+                        >
                           <ListItemText
                             primary={
                               log.student_id?.full_name ||
                               `Log ID: ${log._id} (Tên bị thiếu)`
                             }
-                            secondary={`Trạng thái: ${log.status} - ${new Date(
+                            secondary={`Thời gian: ${new Date(
                               log.timestamp
-                            ).toLocaleTimeString("vi-VN")}`}
+                            ).toLocaleTimeString("vi-VN")}${
+                              log.note ? ` - Ghi chú: ${log.note}` : ""
+                            }`}
                           />
                         </ListItem>
                       ))}
@@ -1921,6 +2002,44 @@ const AttendancePage = () => {
             }}
           >
             Đóng
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete Log Confirmation Dialog */}
+      <Dialog
+        open={deleteLogDialogOpen}
+        onClose={handleCloseDeleteLogDialog}
+        aria-labelledby="delete-log-dialog-title"
+      >
+        <DialogTitle id="delete-log-dialog-title">
+          Xác nhận xóa lượt điểm danh
+        </DialogTitle>
+        <DialogContent>
+          <Typography>
+            Bạn có chắc chắn muốn xóa lượt điểm danh này của sinh viên{" "}
+            <strong>{logToDelete?.student_id?.full_name || "N/A"}</strong>?
+          </Typography>
+          <Typography variant="caption" color="textSecondary">
+            Hành động này sẽ xóa log khỏi hệ thống và cập nhật lại danh sách có
+            mặt/vắng mặt của buổi học.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={handleCloseDeleteLogDialog}
+            color="primary"
+            disabled={isProcessing}
+          >
+            Hủy
+          </Button>
+          <Button
+            onClick={confirmDeleteLog}
+            color="error"
+            variant="contained"
+            disabled={isProcessing}
+          >
+            {isProcessing ? "Đang xóa..." : "Xác nhận xóa"}
           </Button>
         </DialogActions>
       </Dialog>

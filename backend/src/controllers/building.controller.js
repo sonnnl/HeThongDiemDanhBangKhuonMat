@@ -1,4 +1,5 @@
-const { Building, Campus } = require("../models/schemas");
+const { Building, Campus, Room } = require("../models/schemas");
+const { deleteImageFromCloudinary } = require("../utils/cloudinary");
 
 /**
  * Controller quản lý tòa nhà
@@ -9,11 +10,17 @@ const { Building, Campus } = require("../models/schemas");
 // @access  Private
 exports.getAllBuildings = async (req, res) => {
   try {
-    const { campus_id } = req.query;
+    const { campus_id, search } = req.query;
     const query = {};
 
     if (campus_id) {
       query.campus_id = campus_id;
+    }
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: "i" } },
+        { code: { $regex: search, $options: "i" } },
+      ];
     }
 
     const buildings = await Building.find(query)
@@ -79,12 +86,14 @@ exports.createBuilding = async (req, res) => {
       year_built,
       facilities,
       status,
-      image_url,
     } = req.body;
 
     // Kiểm tra campus tồn tại
     const campus = await Campus.findById(campus_id);
     if (!campus) {
+      if (req.uploadedCloudinaryFile && req.uploadedCloudinaryFile.public_id) {
+        await deleteImageFromCloudinary(req.uploadedCloudinaryFile.public_id);
+      }
       return res.status(404).json({
         success: false,
         message: "Không tìm thấy cơ sở với ID này",
@@ -92,15 +101,18 @@ exports.createBuilding = async (req, res) => {
     }
 
     // Kiểm tra mã tòa nhà đã tồn tại chưa
-    const existingBuilding = await Building.findOne({ code });
+    const existingBuilding = await Building.findOne({ code, campus_id });
     if (existingBuilding) {
+      if (req.uploadedCloudinaryFile && req.uploadedCloudinaryFile.public_id) {
+        await deleteImageFromCloudinary(req.uploadedCloudinaryFile.public_id);
+      }
       return res.status(400).json({
         success: false,
-        message: "Mã tòa nhà này đã tồn tại",
+        message: "Mã tòa nhà này đã tồn tại trong cơ sở đã chọn",
       });
     }
 
-    const building = await Building.create({
+    const buildingData = {
       name,
       code,
       campus_id,
@@ -108,8 +120,14 @@ exports.createBuilding = async (req, res) => {
       year_built,
       status: status || "active",
       facilities: facilities || [],
-      image_url,
-    });
+    };
+
+    if (req.uploadedCloudinaryFile) {
+      buildingData.image_url = req.uploadedCloudinaryFile.url;
+      buildingData.image_public_id = req.uploadedCloudinaryFile.public_id;
+    }
+
+    const building = await Building.create(buildingData);
 
     res.status(201).json({
       success: true,
@@ -118,6 +136,9 @@ exports.createBuilding = async (req, res) => {
     });
   } catch (error) {
     console.error("Lỗi khi tạo tòa nhà mới:", error);
+    if (req.uploadedCloudinaryFile && req.uploadedCloudinaryFile.public_id) {
+      await deleteImageFromCloudinary(req.uploadedCloudinaryFile.public_id);
+    }
     res.status(500).json({
       success: false,
       message: "Lỗi server khi tạo tòa nhà mới",
@@ -139,14 +160,30 @@ exports.updateBuilding = async (req, res) => {
       year_built,
       facilities,
       status,
-      image_url,
     } = req.body;
     const buildingId = req.params.id;
 
-    // Kiểm tra campus tồn tại
+    let building = await Building.findById(buildingId);
+    if (!building) {
+      if (req.uploadedCloudinaryFile && req.uploadedCloudinaryFile.public_id) {
+        await deleteImageFromCloudinary(req.uploadedCloudinaryFile.public_id);
+      }
+      return res.status(404).json({
+        success: false,
+        message: "Không tìm thấy tòa nhà với ID này",
+      });
+    }
+
+    // Kiểm tra campus tồn tại nếu có thay đổi campus_id
     if (campus_id) {
       const campus = await Campus.findById(campus_id);
       if (!campus) {
+        if (
+          req.uploadedCloudinaryFile &&
+          req.uploadedCloudinaryFile.public_id
+        ) {
+          await deleteImageFromCloudinary(req.uploadedCloudinaryFile.public_id);
+        }
         return res.status(404).json({
           success: false,
           message: "Không tìm thấy cơ sở với ID này",
@@ -155,45 +192,53 @@ exports.updateBuilding = async (req, res) => {
     }
 
     // Kiểm tra mã tòa nhà đã tồn tại chưa (trừ tòa nhà hiện tại)
+    const campusToCheck = campus_id || building.campus_id.toString();
     if (code) {
       const existingBuilding = await Building.findOne({
         code,
+        campus_id: campusToCheck,
         _id: { $ne: buildingId },
       });
 
       if (existingBuilding) {
+        if (
+          req.uploadedCloudinaryFile &&
+          req.uploadedCloudinaryFile.public_id
+        ) {
+          await deleteImageFromCloudinary(req.uploadedCloudinaryFile.public_id);
+        }
         return res.status(400).json({
           success: false,
-          message: "Mã tòa nhà này đã tồn tại",
+          message: "Mã tòa nhà này đã tồn tại trong cơ sở đã chọn",
         });
       }
     }
 
-    const building = await Building.findByIdAndUpdate(
+    const updateData = { ...req.body };
+    delete updateData.image_url;
+    delete updateData.image_public_id;
+
+    if (req.uploadedCloudinaryFile) {
+      if (building.image_public_id) {
+        await deleteImageFromCloudinary(building.image_public_id);
+      }
+      updateData.image_url = req.uploadedCloudinaryFile.url;
+      updateData.image_public_id = req.uploadedCloudinaryFile.public_id;
+    } else if (req.body.remove_image === "true" && building.image_public_id) {
+      await deleteImageFromCloudinary(building.image_public_id);
+      updateData.image_url = null;
+      updateData.image_public_id = null;
+    }
+
+    const updatedBuilding = await Building.findByIdAndUpdate(
       buildingId,
-      {
-        name,
-        code,
-        campus_id,
-        floors_count,
-        year_built,
-        status,
-        facilities,
-        image_url,
-      },
+      updateData,
       { new: true, runValidators: true }
     );
 
-    if (!building) {
-      return res.status(404).json({
-        success: false,
-        message: "Không tìm thấy tòa nhà với ID này",
-      });
-    }
-
     res.status(200).json({
       success: true,
-      data: building,
+      data: updatedBuilding,
       message: "Cập nhật tòa nhà thành công",
     });
   } catch (error) {
@@ -211,7 +256,7 @@ exports.updateBuilding = async (req, res) => {
 // @access  Private (Admin)
 exports.deleteBuilding = async (req, res) => {
   try {
-    const building = await Building.findByIdAndDelete(req.params.id);
+    const building = await Building.findById(req.params.id);
 
     if (!building) {
       return res.status(404).json({
@@ -219,6 +264,30 @@ exports.deleteBuilding = async (req, res) => {
         message: "Không tìm thấy tòa nhà với ID này",
       });
     }
+
+    // Kiểm tra xem có phòng nào thuộc tòa nhà này không
+    const roomsInBuilding = await Room.find({ building_id: building._id });
+    if (roomsInBuilding.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Không thể xóa tòa nhà này vì còn ${roomsInBuilding.length} phòng đang trực thuộc. Vui lòng xóa các phòng trước.`,
+      });
+    }
+
+    // Xóa ảnh trên Cloudinary nếu có
+    if (building.image_public_id) {
+      const deleteResult = await deleteImageFromCloudinary(
+        building.image_public_id
+      );
+      if (deleteResult.result !== "ok" && deleteResult.result !== "not found") {
+        console.warn(
+          "Lỗi khi xóa ảnh building trên Cloudinary:",
+          deleteResult.message || deleteResult.errorDetails
+        );
+      }
+    }
+
+    await Building.findByIdAndDelete(req.params.id);
 
     res.status(200).json({
       success: true,

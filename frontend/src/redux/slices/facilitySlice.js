@@ -56,16 +56,44 @@ export const fetchAllCampuses = createAsyncThunk(
 
 export const createCampus = createAsyncThunk(
   "facility/createCampus",
-  async (campusData, { rejectWithValue }) => {
+  async (campusPayload, { rejectWithValue }) => {
     try {
-      // Validate required fields
-      if (!campusData.name || !campusData.code) {
-        throw new Error("Tên và mã cơ sở là bắt buộc");
+      const { name, code, imageFile, removeCurrentImage } = campusPayload;
+
+      if (!name || !code) {
+        return rejectWithValue("Tên và mã cơ sở là bắt buộc");
+      }
+
+      const formData = new FormData();
+      for (const key in campusPayload) {
+        if (Object.prototype.hasOwnProperty.call(campusPayload, key)) {
+          if (key !== "imageFile" && key !== "removeCurrentImage") {
+            if (
+              campusPayload[key] !== undefined &&
+              campusPayload[key] !== null
+            ) {
+              formData.append(key, campusPayload[key]);
+            }
+          }
+        }
+      }
+
+      if (imageFile) {
+        formData.append("imageFile", imageFile);
+      }
+
+      if (removeCurrentImage === true) {
+        formData.append("remove_image", "true");
       }
 
       const response = await axiosInstance.post(
         `facilities/campuses`,
-        campusData
+        formData,
+        {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        }
       );
       return response.data;
     } catch (error) {
@@ -81,16 +109,51 @@ export const createCampus = createAsyncThunk(
 
 export const updateCampus = createAsyncThunk(
   "facility/updateCampus",
-  async ({ id, data }, { rejectWithValue }) => {
+  async (campusPayload, { rejectWithValue }) => {
     try {
-      // Validate required fields
-      if (!data.name || !data.code) {
-        throw new Error("Tên và mã cơ sở là bắt buộc");
+      const { id, name, code, imageFile, removeCurrentImage } = campusPayload;
+
+      if (!id) {
+        return rejectWithValue("ID cơ sở là bắt buộc để cập nhật");
+      }
+      if (!name || !code) {
+        return rejectWithValue("Tên và mã cơ sở là bắt buộc khi cập nhật");
+      }
+
+      const formData = new FormData();
+      for (const key in campusPayload) {
+        if (Object.prototype.hasOwnProperty.call(campusPayload, key)) {
+          if (
+            key !== "id" &&
+            key !== "imageFile" &&
+            key !== "removeCurrentImage"
+          ) {
+            if (
+              campusPayload[key] !== undefined &&
+              campusPayload[key] !== null
+            ) {
+              formData.append(key, campusPayload[key]);
+            }
+          }
+        }
+      }
+
+      if (imageFile) {
+        formData.append("imageFile", imageFile);
+      }
+
+      if (removeCurrentImage === true) {
+        formData.append("remove_image", "true");
       }
 
       const response = await axiosInstance.put(
         `facilities/campuses/${id}`,
-        data
+        formData,
+        {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        }
       );
       return response.data;
     } catch (error) {
@@ -158,28 +221,56 @@ export const fetchBuildings = createAsyncThunk(
 
 export const createBuilding = createAsyncThunk(
   "facility/createBuilding",
-  async (buildingData, { rejectWithValue }) => {
+  async (buildingPayload, { rejectWithValue }) => {
     try {
-      // Kiểm tra dữ liệu đầu vào
-      if (!buildingData.name || !buildingData.code) {
+      const { name, code, campus_id, facilities, imageFile } = buildingPayload;
+
+      if (!name || !code) {
         return rejectWithValue("Tên và mã tòa nhà không được để trống");
       }
-
-      // Đảm bảo campus_id là một MongoDB ObjectId (nếu có)
-      if (buildingData.campus_id && buildingData.campus_id.length !== 24) {
+      if (campus_id && !isValidObjectId(campus_id)) {
         return rejectWithValue("ID cơ sở không hợp lệ");
+      }
+
+      const formData = new FormData();
+      for (const key in buildingPayload) {
+        if (Object.prototype.hasOwnProperty.call(buildingPayload, key)) {
+          if (key !== "imageFile" && key !== "removeCurrentImage") {
+            if (
+              buildingPayload[key] !== undefined &&
+              buildingPayload[key] !== null
+            ) {
+              if (key === "facilities" && Array.isArray(buildingPayload[key])) {
+                buildingPayload[key].forEach((facility) => {
+                  formData.append("facilities", facility);
+                });
+              } else {
+                formData.append(key, buildingPayload[key]);
+              }
+            }
+          }
+        }
+      }
+
+      if (imageFile) {
+        formData.append("imageFile", imageFile);
       }
 
       const response = await axiosInstance.post(
         `facilities/buildings`,
-        buildingData
+        formData,
+        {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        }
       );
       return response.data;
     } catch (error) {
-      if (error.response?.status === 401) {
-        return rejectWithValue("Token không hợp lệ hoặc đã hết hạn");
-      }
-      if (error.response?.data?.message === "jwt expired") {
+      if (
+        error.response?.status === 401 ||
+        error.response?.data?.message === "jwt expired"
+      ) {
         return rejectWithValue("jwt expired");
       }
       return rejectWithValue(
@@ -191,31 +282,77 @@ export const createBuilding = createAsyncThunk(
 
 export const updateBuilding = createAsyncThunk(
   "facility/updateBuilding",
-  async ({ id, buildingData }, { rejectWithValue }) => {
+  async (buildingPayload, { rejectWithValue }) => {
     try {
+      const {
+        id,
+        name,
+        code,
+        campus_id,
+        facilities,
+        imageFile,
+        removeCurrentImage,
+      } = buildingPayload;
+
       if (!id) {
         return rejectWithValue("ID của tòa nhà là bắt buộc");
       }
-
-      if (!buildingData || !buildingData.name || !buildingData.code) {
+      if (!name || !code) {
         return rejectWithValue("Tên và mã tòa nhà là các trường bắt buộc");
       }
-
-      // Kiểm tra campus_id nếu có
-      if (buildingData.campus_id && !isValidObjectId(buildingData.campus_id)) {
+      if (campus_id && !isValidObjectId(campus_id)) {
         return rejectWithValue("ID cơ sở không hợp lệ");
+      }
+
+      const formData = new FormData();
+      for (const key in buildingPayload) {
+        if (Object.prototype.hasOwnProperty.call(buildingPayload, key)) {
+          if (
+            key !== "id" &&
+            key !== "imageFile" &&
+            key !== "removeCurrentImage"
+          ) {
+            if (
+              buildingPayload[key] !== undefined &&
+              buildingPayload[key] !== null
+            ) {
+              if (key === "facilities" && Array.isArray(buildingPayload[key])) {
+                if (buildingPayload[key].length === 0) {
+                  formData.append("facilities", "");
+                } else {
+                  buildingPayload[key].forEach((facility) => {
+                    formData.append("facilities", facility);
+                  });
+                }
+              } else {
+                formData.append(key, buildingPayload[key]);
+              }
+            }
+          }
+        }
+      }
+
+      if (imageFile) {
+        formData.append("imageFile", imageFile);
+      } else if (removeCurrentImage) {
+        formData.append("remove_image", "true");
       }
 
       const response = await axiosInstance.put(
         `facilities/buildings/${id}`,
-        buildingData
+        formData,
+        {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        }
       );
       return response.data;
     } catch (error) {
-      if (error.response?.status === 401) {
-        return rejectWithValue("Token không hợp lệ hoặc đã hết hạn");
-      }
-      if (error.response?.data?.message === "jwt expired") {
+      if (
+        error.response?.status === 401 ||
+        error.response?.data?.message === "jwt expired"
+      ) {
         return rejectWithValue("jwt expired");
       }
       return rejectWithValue(
@@ -285,38 +422,47 @@ export const fetchRooms = createAsyncThunk(
 
 export const createRoom = createAsyncThunk(
   "facility/createRoom",
-  async (roomData, { rejectWithValue }) => {
+  async (roomPayload, { rejectWithValue }) => {
     try {
-      // Kiểm tra dữ liệu đầu vào
-      if (!roomData.room_number) {
-        return rejectWithValue("Số phòng không được để trống");
-      }
+      const { room_number, building_id, imageFile, equipment } = roomPayload;
 
-      // Đảm bảo building_id là một MongoDB ObjectId
-      if (!roomData.building_id || roomData.building_id.length !== 24) {
+      if (!room_number || !building_id) {
+        return rejectWithValue("Số phòng và ID tòa nhà là các trường bắt buộc");
+      }
+      if (building_id && !isValidObjectId(building_id)) {
         return rejectWithValue("ID tòa nhà không hợp lệ");
       }
 
-      // Format equipment theo đúng định dạng của schema
-      const formattedData = { ...roomData };
-      if (Array.isArray(formattedData.equipment)) {
-        formattedData.equipment = formattedData.equipment.map((item) => ({
-          name: item,
-          quantity: 1,
-          status: "working",
-        }));
+      const formData = new FormData();
+      for (const key in roomPayload) {
+        if (Object.prototype.hasOwnProperty.call(roomPayload, key)) {
+          if (key !== "imageFile" && key !== "removeCurrentImage") {
+            if (roomPayload[key] !== undefined && roomPayload[key] !== null) {
+              if (key === "equipment" && Array.isArray(roomPayload[key])) {
+                formData.append("equipment", JSON.stringify(roomPayload[key]));
+              } else {
+                formData.append(key, roomPayload[key]);
+              }
+            }
+          }
+        }
       }
 
-      const response = await axiosInstance.post(
-        `facilities/rooms`,
-        formattedData
-      );
+      if (imageFile) {
+        formData.append("imageFile", imageFile);
+      }
+
+      const response = await axiosInstance.post(`facilities/rooms`, formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      });
       return response.data;
     } catch (error) {
-      if (error.response?.status === 401) {
-        return rejectWithValue("Token không hợp lệ hoặc đã hết hạn");
-      }
-      if (error.response?.data?.message === "jwt expired") {
+      if (
+        error.response?.status === 401 ||
+        error.response?.data?.message === "jwt expired"
+      ) {
         return rejectWithValue("jwt expired");
       }
       return rejectWithValue(
@@ -328,42 +474,67 @@ export const createRoom = createAsyncThunk(
 
 export const updateRoom = createAsyncThunk(
   "facility/updateRoom",
-  async ({ id, data }, { rejectWithValue }) => {
+  async (roomPayload, { rejectWithValue }) => {
     try {
+      const {
+        id,
+        room_number,
+        building_id,
+        imageFile,
+        removeCurrentImage,
+        equipment,
+      } = roomPayload;
+
       if (!id) {
-        return rejectWithValue("ID của phòng là bắt buộc");
+        return rejectWithValue("ID phòng là bắt buộc");
+      }
+      if (!room_number) {
+        return rejectWithValue("Số phòng là bắt buộc");
+      }
+      if (building_id && !isValidObjectId(building_id)) {
+        return rejectWithValue("ID tòa nhà không hợp lệ");
       }
 
-      // Đảm bảo các trường số được chuyển đổi đúng định dạng
-      const formattedData = {
-        ...data,
-        floor: Number(data.floor),
-        capacity: Number(data.capacity),
-        room_number: data.room_number.trim(),
-      };
+      const formData = new FormData();
+      for (const key in roomPayload) {
+        if (Object.prototype.hasOwnProperty.call(roomPayload, key)) {
+          if (
+            key !== "id" &&
+            key !== "imageFile" &&
+            key !== "removeCurrentImage"
+          ) {
+            if (roomPayload[key] !== undefined && roomPayload[key] !== null) {
+              if (key === "equipment" && Array.isArray(roomPayload[key])) {
+                formData.append("equipment", JSON.stringify(roomPayload[key]));
+              } else {
+                formData.append(key, roomPayload[key]);
+              }
+            }
+          }
+        }
+      }
 
-      // Format equipment theo đúng định dạng của schema
-      if (Array.isArray(formattedData.equipment)) {
-        formattedData.equipment = formattedData.equipment.map((item) => ({
-          name: item,
-          quantity: 1,
-          status: "working",
-        }));
+      if (imageFile) {
+        formData.append("imageFile", imageFile);
+      } else if (removeCurrentImage) {
+        formData.append("remove_image", "true");
       }
 
       const response = await axiosInstance.put(
         `facilities/rooms/${id}`,
-        formattedData
+        formData,
+        {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        }
       );
       return response.data;
     } catch (error) {
-      console.error("Lỗi cập nhật phòng:", error);
-      console.error("Chi tiết lỗi:", error.response?.data);
-
-      if (error.response?.status === 401) {
-        return rejectWithValue("Token không hợp lệ hoặc đã hết hạn");
-      }
-      if (error.response?.data?.message === "jwt expired") {
+      if (
+        error.response?.status === 401 ||
+        error.response?.data?.message === "jwt expired"
+      ) {
         return rejectWithValue("jwt expired");
       }
       return rejectWithValue(

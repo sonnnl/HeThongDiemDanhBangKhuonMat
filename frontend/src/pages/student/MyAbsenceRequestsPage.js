@@ -778,7 +778,11 @@ const MyAbsenceRequestsPage = () => {
             component="label"
             variant="outlined"
             fullWidth
-            sx={{ mt: 1, mb: 1, justifyContent: "flex-start" }}
+            sx={{
+              mt: 1,
+              mb: newRequestData.evidence_file ? 0 : 1,
+              justifyContent: "flex-start",
+            }}
           >
             Tải Lên Bằng Chứng (Ảnh)
             <input
@@ -786,10 +790,43 @@ const MyAbsenceRequestsPage = () => {
               hidden
               name="evidence_file"
               accept="image/jpeg, image/png, image/gif"
-              onChange={handleInputChange}
+              onChange={(e) => handleInputChange(e, false)}
+              ref={evidenceFileCreateInputRef}
               key={fileInputKeyCreate}
             />
           </Button>
+          {newRequestData.evidence_file && (
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                p: 1,
+                border: "1px solid #ccc",
+                borderRadius: "4px",
+                mb: 1,
+                mt: 1,
+              }}
+            >
+              <Typography
+                variant="body2"
+                sx={{
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {newRequestData.evidence_file.name}
+              </Typography>
+              <IconButton
+                onClick={() => handleRemoveEvidenceFile(false)}
+                size="small"
+                title="Xóa file"
+              >
+                <Clear />
+              </IconButton>
+            </Box>
+          )}
           {fileError && (
             <Typography
               color="error"
@@ -906,7 +943,7 @@ const MyAbsenceRequestsPage = () => {
               rows={4}
               variant="outlined"
               value={newRequestData.reason}
-              onChange={handleInputChange}
+              onChange={(e) => handleInputChange(e, true)}
               sx={{ mb: 2 }}
             />
             {/* Input tải file mới */}
@@ -914,7 +951,11 @@ const MyAbsenceRequestsPage = () => {
               component="label"
               variant="outlined"
               fullWidth
-              sx={{ mt: 1, mb: 1, justifyContent: "flex-start" }}
+              sx={{
+                mt: 1,
+                mb: newRequestData.evidence_file ? 0 : 1,
+                justifyContent: "flex-start",
+              }}
             >
               Tải Lên Bằng Chứng Mới (Nếu muốn thay đổi/thêm)
               <input
@@ -922,10 +963,43 @@ const MyAbsenceRequestsPage = () => {
                 hidden
                 name="evidence_file"
                 accept="image/jpeg, image/png, image/gif"
-                onChange={handleInputChange}
+                onChange={(e) => handleInputChange(e, true)}
+                ref={evidenceFileEditInputRef}
                 key={fileInputKeyEdit}
               />
             </Button>
+            {newRequestData.evidence_file && (
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  p: 1,
+                  border: "1px solid #ccc",
+                  borderRadius: "4px",
+                  mb: 1,
+                  mt: 1,
+                }}
+              >
+                <Typography
+                  variant="body2"
+                  sx={{
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {newRequestData.evidence_file.name}
+                </Typography>
+                <IconButton
+                  onClick={() => handleRemoveEvidenceFile(true)}
+                  size="small"
+                  title="Xóa file"
+                >
+                  <Clear />
+                </IconButton>
+              </Box>
+            )}
             {fileError && (
               <Typography
                 color="error"
@@ -952,7 +1026,7 @@ const MyAbsenceRequestsPage = () => {
               fullWidth
               variant="outlined"
               value={newRequestData.evidence_url}
-              onChange={handleInputChange}
+              onChange={(e) => handleInputChange(e, true)}
               disabled={!!newRequestData.evidence_file}
             />
           </DialogContent>

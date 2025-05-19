@@ -33,6 +33,7 @@ import {
   MenuItem,
   InputAdornment,
   Container,
+  Avatar,
 } from "@mui/material";
 import {
   Add,
@@ -44,6 +45,9 @@ import {
   Domain,
   ArrowBack,
   LocationOn,
+  CloudUpload,
+  DeleteForever as DeleteForeverIcon,
+  PhotoCamera,
 } from "@mui/icons-material";
 import {
   fetchBuildings,
@@ -64,15 +68,29 @@ import {
 import { toast } from "react-hot-toast";
 import axiosInstance from "../../utils/axios";
 
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+const ALLOWED_FILE_TYPES = [
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/gif",
+];
+
 // Các giá trị mặc định cho form
 const defaultCampusFormData = {
+  _id: "",
   name: "",
   code: "",
   address: "",
   status: "active",
+  description: "",
+  image_url: "",
+  imageFile: null,
+  removeCurrentImage: false,
 };
 
 const defaultBuildingFormData = {
+  _id: "",
   name: "",
   code: "",
   campus_id: "",
@@ -81,6 +99,8 @@ const defaultBuildingFormData = {
   status: "active",
   facilities: [],
   image_url: "",
+  imageFile: null,
+  removeCurrentImage: false,
 };
 
 const defaultRoomFormData = {
@@ -92,6 +112,9 @@ const defaultRoomFormData = {
   room_type: "lecture",
   status: "available",
   equipment: [],
+  image_url: "",
+  imageFile: null,
+  removeCurrentImage: false,
 };
 
 // Danh sách tiện ích có sẵn
@@ -172,7 +195,9 @@ const FacilitiesPage = () => {
   const [campusDialogOpen, setCampusDialogOpen] = useState(false);
   const [campusDialogMode, setCampusDialogMode] = useState("add");
   const [campusFormData, setCampusFormData] = useState(defaultCampusFormData);
+  const [campusImagePreview, setCampusImagePreview] = useState(null);
   const [searchTimeout, setSearchTimeout] = useState(null);
+  const [campusFileError, setCampusFileError] = useState(""); // Thêm state lỗi file campus
 
   // States cho dialogs tòa nhà
   const [buildingDialogOpen, setBuildingDialogOpen] = useState(false);
@@ -180,16 +205,25 @@ const FacilitiesPage = () => {
   const [buildingFormData, setBuildingFormData] = useState(
     defaultBuildingFormData
   );
+  const [buildingImagePreview, setBuildingImagePreview] = useState(null);
+  const [buildingFileError, setBuildingFileError] = useState(""); // Thêm state lỗi file building
 
   // States cho dialogs phòng học
   const [roomDialogOpen, setRoomDialogOpen] = useState(false);
   const [roomDialogMode, setRoomDialogMode] = useState("add");
   const [roomFormData, setRoomFormData] = useState(defaultRoomFormData);
+  const [roomImagePreview, setRoomImagePreview] = useState(null);
+  const [roomFileError, setRoomFileError] = useState(""); // Thêm state lỗi file room
 
   // States cho dialogs xóa
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteDialogType, setDeleteDialogType] = useState("building");
   const [itemToDelete, setItemToDelete] = useState(null);
+
+  // States cho dialog xem ảnh
+  const [imagePreviewOpen, setImagePreviewOpen] = useState(false);
+  const [currentImageUrl, setCurrentImageUrl] = useState("");
+  const [currentImageAlt, setCurrentImageAlt] = useState("");
 
   // Selectors cho dữ liệu từ Redux store
   const campusesData = useMemo(() => {
@@ -316,6 +350,20 @@ const FacilitiesPage = () => {
     fetchCampusList();
   }, [fetchCampusList]);
 
+  // Hàm mở dialog xem ảnh
+  const handleOpenImagePreview = (imageUrl, altText) => {
+    setCurrentImageUrl(imageUrl);
+    setCurrentImageAlt(altText);
+    setImagePreviewOpen(true);
+  };
+
+  // Hàm đóng dialog xem ảnh
+  const handleCloseImagePreview = () => {
+    setImagePreviewOpen(false);
+    setCurrentImageUrl("");
+    setCurrentImageAlt("");
+  };
+
   // Handlers cho tabs
   const handleTabChange = (event, newValue) => {
     setTabValue(newValue);
@@ -382,10 +430,25 @@ const FacilitiesPage = () => {
     setCampusDialogMode(mode);
     if (mode === "edit" && campus) {
       setCampusFormData({
-        ...campus,
+        ...defaultCampusFormData,
+        _id: campus._id,
+        name: campus.name,
+        code: campus.code,
+        address: campus.address || "",
+        description: campus.description || "",
+        status: campus.status || "active",
+        image_url: campus.image_url || "",
+        imageFile: null,
+        removeCurrentImage: false,
       });
+      if (campus.image_url) {
+        setCampusImagePreview(campus.image_url);
+      } else {
+        setCampusImagePreview(null);
+      }
     } else {
       setCampusFormData(defaultCampusFormData);
+      setCampusImagePreview(null);
     }
     setCampusDialogOpen(true);
   };
@@ -394,60 +457,125 @@ const FacilitiesPage = () => {
   const handleCampusDialogClose = () => {
     setCampusDialogOpen(false);
     setCampusFormData(defaultCampusFormData);
+    setCampusImagePreview(null);
   };
 
   // Xử lý khi thay đổi form campus
   const handleCampusFormChange = (e) => {
-    const { name, value } = e.target;
-    setCampusFormData({
-      ...campusFormData,
-      [name]: value,
-    });
+    const { name, value, type, checked } = e.target;
+    setCampusFormData((prev) => ({
+      ...prev,
+      [name]: type === "checkbox" ? checked : value,
+    }));
+  };
+
+  // Xử lý chọn file ảnh campus
+  const handleCampusImageChange = (e) => {
+    // toast.info("Đang xử lý file ảnh campus..."); // Bỏ dòng toast.info
+    setCampusFileError(""); // Reset lỗi mỗi khi chọn file mới
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+
+      // Kiểm tra kích thước file
+      if (file.size > MAX_FILE_SIZE) {
+        setCampusFileError(
+          `Kích thước file không được vượt quá ${
+            MAX_FILE_SIZE / (1024 * 1024)
+          }MB.`
+        );
+        e.target.value = null;
+        return;
+      }
+
+      // Kiểm tra loại file
+      if (!ALLOWED_FILE_TYPES.includes(file.type)) {
+        setCampusFileError(
+          "Định dạng file không hợp lệ. Chỉ chấp nhận: " +
+            ALLOWED_FILE_TYPES.map((type) => type.split("/")[1]).join(", ") +
+            "."
+        );
+        e.target.value = null;
+        return;
+      }
+
+      setCampusFormData((prev) => ({
+        ...prev,
+        imageFile: file,
+        image_url: "", // Xóa image_url cũ nếu có
+        removeCurrentImage: false, // Nếu chọn file mới thì không xóa ảnh hiện tại (nếu là edit)
+      }));
+      setCampusImagePreview(URL.createObjectURL(file));
+    } else {
+      // Trường hợp người dùng hủy chọn file (trong một số trình duyệt)
+      // hoặc nếu logic trước đó cho phép imageFile là null và muốn giữ ảnh từ image_url
+      if (campusFormData.imageFile && !e.target.files[0]) {
+        // Nếu trước đó có file và giờ không có
+        // Không làm gì cả nếu người dùng chỉ đóng dialog chọn file mà không chọn gì
+        // Nếu muốn xóa file đã chọn trước đó khi người dùng bấm cancel, thì thêm logic ở đây
+      }
+      // Nếu không có file nào được chọn và trước đó cũng không có imageFile,
+      // và có campusFormData.image_url (đang edit), thì giữ nguyên preview của image_url
+      // Tuy nhiên, logic này có thể đã được xử lý bởi việc không set imageFile thành null ở trên
+    }
+  };
+
+  // Xử lý xóa ảnh campus hiện tại (khi edit)
+  const handleRemoveCampusImage = () => {
+    setCampusFormData((prev) => ({
+      ...prev,
+      imageFile: null,
+      image_url: "",
+      removeCurrentImage: true,
+    }));
+    setCampusImagePreview(null);
   };
 
   // Xử lý submit form campus
   const handleCampusFormSubmit = async () => {
+    setIsSubmitting(true);
     try {
-      const trimmedData = {
-        ...campusFormData,
-        code: campusFormData.code.trim(),
+      const payload = {
         name: campusFormData.name.trim(),
+        code: campusFormData.code.trim(),
         address: campusFormData.address?.trim() || "",
+        description: campusFormData.description?.trim() || "",
         status: campusFormData.status || "active",
+        imageFile: campusFormData.imageFile,
+        removeCurrentImage: campusFormData.removeCurrentImage,
       };
 
-      // Loại bỏ _id khi thêm mới
+      // Kiểm tra và thêm location nếu có.
+      // Giả sử campusFormData có thể chứa location_latitude và location_longitude
+      // Bạn cần đảm bảo các trường này được quản lý trong campusFormData nếu muốn sử dụng
+      if (
+        campusFormData.location_latitude &&
+        campusFormData.location_longitude
+      ) {
+        payload.location = JSON.stringify({
+          latitude: campusFormData.location_latitude,
+          longitude: campusFormData.location_longitude,
+        });
+      }
+
       if (campusDialogMode === "add") {
-        delete trimmedData._id;
-        await dispatch(createCampus(trimmedData)).unwrap();
+        await dispatch(createCampus(payload)).unwrap();
         toast.success("Đã thêm cơ sở thành công");
       } else {
-        // Đảm bảo có id khi cập nhật
-        const updateData = {
-          id: trimmedData._id,
-          data: {
-            name: trimmedData.name,
-            code: trimmedData.code,
-            address: trimmedData.address,
-            status: trimmedData.status,
-          },
-        };
-
-        await dispatch(updateCampus(updateData)).unwrap();
+        payload.id = campusFormData._id;
+        await dispatch(updateCampus(payload)).unwrap();
         toast.success("Đã cập nhật cơ sở thành công");
       }
 
-      setCampusDialogOpen(false);
-      setCampusFormData(defaultCampusFormData);
-
-      // Đảm bảo tải lại dữ liệu sau khi thêm/cập nhật
+      handleCampusDialogClose();
       setTimeout(() => {
-        dispatch(fetchAllCampuses({}));
+        dispatch(fetchAllCampuses({ limit: 100 }));
         fetchCampusList();
-      }, 500);
+      }, 300);
     } catch (error) {
       console.error("Lỗi khi xử lý form cơ sở:", error);
       toast.error(error?.message || "Đã có lỗi xảy ra khi xử lý cơ sở");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -472,103 +600,164 @@ const FacilitiesPage = () => {
     setBuildingDialogMode(mode);
     if (mode === "edit" && building) {
       setBuildingFormData({
+        ...defaultBuildingFormData,
         _id: building._id,
         name: building.name,
         code: building.code,
-        campus_id: building.campus_id || "",
+        campus_id: building.campus_id?._id || building.campus_id || "",
         floors_count: building.floors_count || 1,
         year_built: building.year_built || new Date().getFullYear(),
         status: building.status || "active",
         facilities: building.facilities || [],
         image_url: building.image_url || "",
+        imageFile: null,
+        removeCurrentImage: false,
       });
+      if (building.image_url) {
+        setBuildingImagePreview(building.image_url);
+      } else {
+        setBuildingImagePreview(null);
+      }
     } else {
       setBuildingFormData({
         ...defaultBuildingFormData,
         campus_id: selectedCampus?._id || "",
+        imageFile: null,
+        removeCurrentImage: false,
       });
+      setBuildingImagePreview(null);
     }
     setBuildingDialogOpen(true);
   };
 
   const handleCloseBuildingDialog = () => {
     setBuildingDialogOpen(false);
+    setBuildingFormData(defaultBuildingFormData);
+    setBuildingImagePreview(null);
   };
 
   // Handler cho building form change
   const handleBuildingFormChange = (e) => {
-    const { name, value } = e.target;
+    const { name, value, type, checked } = e.target;
+    if (name === "facilities") {
+      setBuildingFormData((prev) => ({
+        ...prev,
+        facilities: typeof value === "string" ? value.split(",") : value,
+      }));
+    } else {
+      setBuildingFormData((prev) => ({
+        ...prev,
+        [name]: type === "checkbox" ? checked : value,
+      }));
+    }
+  };
+
+  // Handler cho chọn file ảnh building
+  const handleBuildingImageChange = (e) => {
+    // toast.info("Đang xử lý file ảnh tòa nhà..."); // Bỏ toast.info
+    setBuildingFileError(""); // Reset lỗi
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+
+      if (file.size > MAX_FILE_SIZE) {
+        setBuildingFileError(
+          `Kích thước file không được vượt quá ${
+            MAX_FILE_SIZE / (1024 * 1024)
+          }MB.`
+        );
+        e.target.value = null;
+        return;
+      }
+
+      if (!ALLOWED_FILE_TYPES.includes(file.type)) {
+        setBuildingFileError(
+          "Định dạng file không hợp lệ. Chỉ chấp nhận: " +
+            ALLOWED_FILE_TYPES.map((type) => type.split("/")[1]).join(", ") +
+            "."
+        );
+        e.target.value = null;
+        return;
+      }
+
+      setBuildingFormData((prev) => ({
+        ...prev,
+        imageFile: file,
+        image_url: "",
+        removeCurrentImage: false,
+      }));
+      setBuildingImagePreview(URL.createObjectURL(file));
+    } else {
+      if (buildingFormData.imageFile && !e.target.files[0]) {
+        // Giữ nguyên nếu người dùng hủy chọn file, không clear file đã chọn trước đó
+      }
+    }
+  };
+
+  // Handler cho xóa ảnh building hiện tại
+  const handleRemoveBuildingImage = () => {
     setBuildingFormData((prev) => ({
       ...prev,
-      [name]: value,
+      imageFile: null,
+      image_url: "",
+      removeCurrentImage: true,
     }));
+    setBuildingImagePreview(null);
   };
 
   // Handler cho submit building form
   const handleBuildingFormSubmit = async (e) => {
     e.preventDefault();
+    setIsSubmitting(true);
 
-    // Validate form data
     if (!buildingFormData.name.trim() || !buildingFormData.code.trim()) {
       toast.error("Vui lòng nhập đầy đủ tên và mã tòa nhà");
+      setIsSubmitting(false);
       return;
     }
-
-    // Kiểm tra campus_id
     if (!buildingFormData.campus_id) {
       toast.error("Vui lòng chọn cơ sở cho tòa nhà");
+      setIsSubmitting(false);
       return;
     }
 
     try {
-      if (buildingDialogMode === "add") {
-        // Tạo object mới chỉ với các trường cần thiết và loại bỏ _id
-        const newBuildingData = {
-          name: buildingFormData.name.trim(),
-          code: buildingFormData.code.trim(),
-          campus_id: buildingFormData.campus_id,
-          floors_count: Number(buildingFormData.floors_count),
-          year_built: Number(buildingFormData.year_built),
-          status: buildingFormData.status,
-          facilities: buildingFormData.facilities || [],
-        };
+      const payload = {
+        name: buildingFormData.name.trim(),
+        code: buildingFormData.code.trim(),
+        campus_id: buildingFormData.campus_id,
+        floors_count: Number(buildingFormData.floors_count),
+        year_built: Number(buildingFormData.year_built),
+        status: buildingFormData.status,
+        // Đảm bảo facilities là một mảng các chuỗi (IDs)
+        facilities: Array.isArray(buildingFormData.facilities)
+          ? buildingFormData.facilities.map(String)
+          : [],
+        imageFile: buildingFormData.imageFile,
+        removeCurrentImage: buildingFormData.removeCurrentImage,
+      };
+      console.log("Building form data to submit:", buildingFormData);
+      console.log("Payload for create/update building:", payload);
 
-        await dispatch(createBuilding(newBuildingData)).unwrap();
+      if (buildingDialogMode === "add") {
+        await dispatch(createBuilding(payload)).unwrap();
         toast.success("Thêm tòa nhà thành công");
       } else {
-        // Cập nhật với định dạng {id, buildingData}
-        const updateData = {
-          id: buildingFormData._id,
-          buildingData: {
-            name: buildingFormData.name.trim(),
-            code: buildingFormData.code.trim(),
-            campus_id: buildingFormData.campus_id,
-            floors_count: Number(buildingFormData.floors_count),
-            year_built: Number(buildingFormData.year_built),
-            status: buildingFormData.status,
-            facilities: buildingFormData.facilities || [],
-          },
-        };
-
-        await dispatch(updateBuilding(updateData)).unwrap();
+        payload.id = buildingFormData._id;
+        await dispatch(updateBuilding(payload)).unwrap();
         toast.success("Cập nhật tòa nhà thành công");
       }
 
       handleCloseBuildingDialog();
-
-      // Đảm bảo tải lại dữ liệu sau khi thêm/cập nhật
       setTimeout(() => {
         loadBuildings();
-      }, 500);
+      }, 300);
     } catch (error) {
       console.error("Lỗi khi xử lý form tòa nhà:", error);
-      if (error.message === "jwt expired") {
-        toast.error("Phiên đăng nhập hết hạn, vui lòng đăng nhập lại");
-      } else {
-        toast.error(
-          error.message || "Có lỗi xảy ra khi xử lý thông tin tòa nhà"
-        );
-      }
+      toast.error(
+        error?.message || "Có lỗi xảy ra khi xử lý thông tin tòa nhà"
+      );
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -577,108 +766,172 @@ const FacilitiesPage = () => {
     setRoomDialogMode(mode);
     if (mode === "edit" && room) {
       setRoomFormData({
+        ...defaultRoomFormData,
         _id: room._id || "",
         room_number: room.room_number || "",
-        building_id: room.building_id || "",
+        building_id: room.building_id?._id || room.building_id || "",
         floor: room.floor ? String(room.floor) : "1",
         capacity: room.capacity ? String(room.capacity) : "0",
         room_type: room.room_type || "lecture",
         status: room.status || "available",
-        equipment: room.equipment || [],
+        equipment: room.equipment
+          ? Array.isArray(room.equipment)
+            ? room.equipment.map((eq) =>
+                typeof eq === "string" ? eq : eq.name || eq.id
+              )
+            : []
+          : [],
+        image_url: room.image_url || "",
+        imageFile: null,
+        removeCurrentImage: false,
       });
+      if (room.image_url) {
+        setRoomImagePreview(room.image_url);
+      } else {
+        setRoomImagePreview(null);
+      }
     } else {
       setRoomFormData({
-        _id: "",
-        room_number: "",
+        ...defaultRoomFormData,
         building_id: selectedBuilding?._id || "",
-        floor: "1",
-        capacity: "0",
-        room_type: "lecture",
-        status: "available",
-        equipment: [],
+        imageFile: null,
+        removeCurrentImage: false,
       });
+      setRoomImagePreview(null);
     }
     setRoomDialogOpen(true);
   };
 
   const handleCloseRoomDialog = () => {
     setRoomDialogOpen(false);
+    setRoomFormData(defaultRoomFormData);
+    setRoomImagePreview(null);
   };
 
   // Handler cho room form change
   const handleRoomFormChange = (e) => {
-    const { name, value } = e.target;
+    const { name, value, type, checked } = e.target;
     setRoomFormData((prev) => ({
       ...prev,
-      [name]: value,
+      [name]: type === "checkbox" ? checked : value,
     }));
+  };
+
+  // Handler cho chọn file ảnh room
+  const handleRoomImageChange = (e) => {
+    // toast.info("Đang xử lý file ảnh phòng..."); // Đảm bảo dòng này đã được xóa hoặc comment
+    setRoomFileError(""); // Reset lỗi mỗi khi chọn file mới
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+
+      // Kiểm tra kích thước file
+      if (file.size > MAX_FILE_SIZE) {
+        setRoomFileError(
+          // Sử dụng setState thay vì toast
+          `Kích thước file không được vượt quá ${
+            MAX_FILE_SIZE / (1024 * 1024)
+          }MB.`
+        );
+        e.target.value = null;
+        return;
+      }
+
+      // Kiểm tra loại file
+      if (!ALLOWED_FILE_TYPES.includes(file.type)) {
+        setRoomFileError(
+          // Sử dụng setState thay vì toast
+          "Định dạng file không hợp lệ. Chỉ chấp nhận: " +
+            ALLOWED_FILE_TYPES.map((type) => type.split("/")[1]).join(", ") +
+            "."
+        );
+        e.target.value = null;
+        return;
+      }
+
+      setRoomFormData((prev) => ({
+        ...prev,
+        imageFile: file,
+        image_url: "",
+        removeCurrentImage: false,
+      }));
+      setRoomImagePreview(URL.createObjectURL(file));
+    } else {
+      if (roomFormData.imageFile && !e.target.files[0]) {
+        // Giữ nguyên nếu người dùng hủy chọn file
+      }
+    }
+  };
+
+  // Handler cho xóa ảnh room hiện tại
+  const handleRemoveRoomImage = () => {
+    setRoomFormData((prev) => ({
+      ...prev,
+      imageFile: null,
+      image_url: "",
+      removeCurrentImage: true,
+    }));
+    setRoomImagePreview(null);
   };
 
   // Handler cho submit room form
   const handleRoomFormSubmit = async (e) => {
     e.preventDefault();
+    setIsSubmitting(true);
 
-    // Validate form data
     if (!roomFormData.room_number.trim()) {
       toast.error("Vui lòng nhập đầy đủ số phòng");
+      setIsSubmitting(false);
       return;
     }
-
-    // Kiểm tra building_id
     if (!roomFormData.building_id) {
       toast.error("Vui lòng chọn tòa nhà cho phòng học");
+      setIsSubmitting(false);
       return;
     }
 
     try {
-      if (roomDialogMode === "add") {
-        // Tạo object mới chỉ với các trường cần thiết và loại bỏ _id
-        const newRoomData = {
-          room_number: roomFormData.room_number.trim(),
-          building_id: roomFormData.building_id,
-          floor: Number(roomFormData.floor),
-          capacity: Number(roomFormData.capacity),
-          room_type: roomFormData.room_type,
-          status: roomFormData.status,
-          equipment: roomFormData.equipment || [],
-        };
+      const processedEquipment = (roomFormData.equipment || []).map((eqId) => ({
+        name: eqId, // eqId ở đây là string, ví dụ "projector"
+        quantity: 1, // Mặc định quantity là 1
+        status: "working", // Mặc định status là "working"
+      }));
 
-        await dispatch(createRoom(newRoomData)).unwrap();
+      const payload = {
+        room_number: roomFormData.room_number.trim(),
+        building_id: roomFormData.building_id,
+        floor: Number(roomFormData.floor),
+        capacity: Number(roomFormData.capacity),
+        room_type: roomFormData.room_type,
+        status: roomFormData.status,
+        equipment: processedEquipment, // Sử dụng equipment đã xử lý
+        area: roomFormData.area ? Number(roomFormData.area) : undefined,
+        imageFile: roomFormData.imageFile,
+        removeCurrentImage: roomFormData.removeCurrentImage,
+      };
+
+      console.log("Room form data to submit:", roomFormData);
+      console.log("Payload for create/update room:", payload);
+
+      if (roomDialogMode === "add") {
+        await dispatch(createRoom(payload)).unwrap();
         toast.success("Thêm phòng học thành công");
       } else {
-        // Cập nhật với định dạng {id, data}
-        const updateData = {
-          id: roomFormData._id,
-          data: {
-            room_number: roomFormData.room_number.trim(),
-            building_id: roomFormData.building_id,
-            floor: Number(roomFormData.floor),
-            capacity: Number(roomFormData.capacity),
-            room_type: roomFormData.room_type,
-            status: roomFormData.status,
-            equipment: roomFormData.equipment || [],
-          },
-        };
-
-        await dispatch(updateRoom(updateData)).unwrap();
+        payload.id = roomFormData._id;
+        await dispatch(updateRoom(payload)).unwrap();
         toast.success("Cập nhật phòng học thành công");
       }
 
       handleCloseRoomDialog();
-
-      // Đảm bảo tải lại dữ liệu sau khi thêm/cập nhật
       setTimeout(() => {
         loadRooms();
-      }, 500);
+      }, 300);
     } catch (error) {
       console.error("Lỗi khi xử lý form phòng học:", error);
-      if (error.message === "jwt expired") {
-        toast.error("Phiên đăng nhập hết hạn, vui lòng đăng nhập lại");
-      } else {
-        toast.error(
-          error.message || "Có lỗi xảy ra khi xử lý thông tin phòng học"
-        );
-      }
+      toast.error(
+        error?.message || "Có lỗi xảy ra khi xử lý thông tin phòng học"
+      );
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -884,19 +1137,20 @@ const FacilitiesPage = () => {
                   <TableCell>Tên cơ sở</TableCell>
                   <TableCell>Địa chỉ</TableCell>
                   <TableCell>Trạng thái</TableCell>
+                  <TableCell align="center">Ảnh</TableCell>
                   <TableCell align="right">Thao tác</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={7} align="center">
+                    <TableCell colSpan={8} align="center">
                       <CircularProgress size={24} />
                     </TableCell>
                   </TableRow>
                 ) : displayedCampuses.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} align="center">
+                    <TableCell colSpan={8} align="center">
                       Không có dữ liệu
                     </TableCell>
                   </TableRow>
@@ -938,6 +1192,25 @@ const FacilitiesPage = () => {
                           }
                           size="small"
                         />
+                      </TableCell>
+                      <TableCell align="center">
+                        {campus.image_url ? (
+                          <Tooltip title="Xem ảnh">
+                            <IconButton
+                              size="small"
+                              onClick={() =>
+                                handleOpenImagePreview(
+                                  campus.image_url,
+                                  `Ảnh cơ sở ${campus.name}`
+                                )
+                              }
+                            >
+                              <PhotoCamera />
+                            </IconButton>
+                          </Tooltip>
+                        ) : (
+                          "N/A"
+                        )}
                       </TableCell>
                       <TableCell align="right">
                         <IconButton
@@ -1077,19 +1350,20 @@ const FacilitiesPage = () => {
               <TableCell>Cơ sở</TableCell>
               <TableCell align="center">Số tầng</TableCell>
               <TableCell>Tiện ích</TableCell>
+              <TableCell align="center">Ảnh</TableCell>
               <TableCell align="right">Hành động</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {isLoading && buildings.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} align="center">
+                <TableCell colSpan={7} align="center">
                   <CircularProgress size={30} />
                 </TableCell>
               </TableRow>
             ) : buildings.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} align="center">
+                <TableCell colSpan={7} align="center">
                   Không tìm thấy tòa nhà nào
                 </TableCell>
               </TableRow>
@@ -1129,6 +1403,25 @@ const FacilitiesPage = () => {
                         </Typography>
                       )}
                     </Box>
+                  </TableCell>
+                  <TableCell align="center">
+                    {building.image_url ? (
+                      <Tooltip title="Xem ảnh">
+                        <IconButton
+                          size="small"
+                          onClick={() =>
+                            handleOpenImagePreview(
+                              building.image_url,
+                              `Ảnh tòa nhà ${building.name}`
+                            )
+                          }
+                        >
+                          <PhotoCamera />
+                        </IconButton>
+                      </Tooltip>
+                    ) : (
+                      "N/A"
+                    )}
                   </TableCell>
                   <TableCell align="right">
                     <Box display="flex" justifyContent="flex-end">
@@ -1286,19 +1579,20 @@ const FacilitiesPage = () => {
                   <TableCell>Loại phòng</TableCell>
                   <TableCell>Tiện ích</TableCell>
                   <TableCell>Trạng thái</TableCell>
+                  <TableCell align="center">Ảnh</TableCell>
                   <TableCell align="right">Hành động</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {isLoading && rooms.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} align="center">
+                    <TableCell colSpan={9} align="center">
                       <CircularProgress size={30} />
                     </TableCell>
                   </TableRow>
                 ) : rooms.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} align="center">
+                    <TableCell colSpan={9} align="center">
                       Không tìm thấy phòng học nào
                     </TableCell>
                   </TableRow>
@@ -1365,6 +1659,25 @@ const FacilitiesPage = () => {
                           color={getRoomStatusColor(room.status)}
                           size="small"
                         />
+                      </TableCell>
+                      <TableCell align="center">
+                        {room.image_url ? (
+                          <Tooltip title="Xem ảnh">
+                            <IconButton
+                              size="small"
+                              onClick={() =>
+                                handleOpenImagePreview(
+                                  room.image_url,
+                                  `Ảnh phòng ${room.room_number}`
+                                )
+                              }
+                            >
+                              <PhotoCamera />
+                            </IconButton>
+                          </Tooltip>
+                        ) : (
+                          "N/A"
+                        )}
                       </TableCell>
                       <TableCell align="right">
                         <Box display="flex" justifyContent="flex-end">
@@ -1474,74 +1787,169 @@ const FacilitiesPage = () => {
       <Dialog
         open={campusDialogOpen}
         onClose={handleCampusDialogClose}
-        maxWidth="sm"
+        maxWidth="md"
         fullWidth
       >
         <DialogTitle>
           {campusDialogMode === "add" ? "Thêm cơ sở mới" : "Cập nhật cơ sở"}
         </DialogTitle>
         <DialogContent>
-          <Box component="form" sx={{ mt: 2 }}>
-            <Grid container spacing={2}>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  name="code"
-                  label="Mã cơ sở"
-                  fullWidth
-                  required
-                  value={campusFormData.code}
-                  onChange={handleCampusFormChange}
+          <Grid container spacing={3} sx={{ mt: 1 }}>
+            {/* Cột cho ảnh */}
+            <Grid item xs={12} md={4}>
+              <Box display="flex" flexDirection="column" alignItems="center">
+                <Avatar
+                  src={campusImagePreview || campusFormData.image_url}
+                  alt={campusFormData.name || "Campus Image"}
+                  variant="rounded"
+                  sx={{
+                    width: 180,
+                    height: 180,
+                    mb: 2,
+                    border: "1px solid lightgray",
+                  }}
+                >
+                  {!campusImagePreview && !campusFormData.image_url && (
+                    <LocationOn sx={{ fontSize: 60 }} />
+                  )}
+                </Avatar>
+                <Button
                   variant="outlined"
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  name="name"
-                  label="Tên cơ sở"
+                  component="label"
+                  startIcon={<CloudUpload />}
                   fullWidth
-                  required
-                  value={campusFormData.name}
-                  onChange={handleCampusFormChange}
-                  variant="outlined"
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  name="address"
-                  label="Địa chỉ"
-                  fullWidth
-                  value={campusFormData.address}
-                  onChange={handleCampusFormChange}
-                  variant="outlined"
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <FormControl fullWidth>
-                  <InputLabel>Trạng thái</InputLabel>
-                  <Select
-                    name="status"
-                    value={campusFormData.status}
-                    onChange={handleCampusFormChange}
-                    label="Trạng thái"
+                  size="small"
+                >
+                  Tải ảnh lên
+                  <input
+                    type="file"
+                    hidden
+                    accept="image/*"
+                    onChange={handleCampusImageChange}
+                  />
+                </Button>
+                {campusFileError && (
+                  <Typography
+                    color="error"
+                    variant="caption"
+                    sx={{ mt: 1, textAlign: "center" }}
                   >
-                    <MenuItem value="active">Hoạt động</MenuItem>
-                    <MenuItem value="maintenance">Bảo trì</MenuItem>
-                    <MenuItem value="inactive">Không hoạt động</MenuItem>
-                  </Select>
-                </FormControl>
+                    {campusFileError}
+                  </Typography>
+                )}
+                {(campusImagePreview || campusFormData.image_url) &&
+                  campusDialogMode === "edit" && (
+                    <Button
+                      variant="text"
+                      color="error"
+                      startIcon={<DeleteForeverIcon />}
+                      onClick={handleRemoveCampusImage}
+                      size="small"
+                      sx={{ mt: 1 }}
+                    >
+                      Xóa ảnh hiện tại
+                    </Button>
+                  )}
+              </Box>
+            </Grid>
+
+            {/* Cột cho thông tin */}
+            <Grid item xs={12} md={8}>
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    name="code"
+                    label="Mã cơ sở"
+                    fullWidth
+                    required
+                    value={campusFormData.code}
+                    onChange={handleCampusFormChange}
+                    variant="outlined"
+                    disabled={isSubmitting}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    name="name"
+                    label="Tên cơ sở"
+                    fullWidth
+                    required
+                    value={campusFormData.name}
+                    onChange={handleCampusFormChange}
+                    variant="outlined"
+                    disabled={isSubmitting}
+                  />
+                </Grid>
+                <Grid item xs={12}>
+                  <TextField
+                    name="address"
+                    label="Địa chỉ"
+                    fullWidth
+                    value={campusFormData.address}
+                    onChange={handleCampusFormChange}
+                    variant="outlined"
+                    disabled={isSubmitting}
+                  />
+                </Grid>
+                <Grid item xs={12}>
+                  <TextField
+                    name="description"
+                    label="Mô tả"
+                    fullWidth
+                    multiline
+                    rows={3}
+                    value={campusFormData.description}
+                    onChange={handleCampusFormChange}
+                    variant="outlined"
+                    disabled={isSubmitting}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth disabled={isSubmitting}>
+                    <InputLabel>Trạng thái</InputLabel>
+                    <Select
+                      name="status"
+                      value={campusFormData.status}
+                      onChange={handleCampusFormChange}
+                      label="Trạng thái"
+                    >
+                      <MenuItem value="active">Hoạt động</MenuItem>
+                      <MenuItem value="inactive">Không hoạt động</MenuItem>
+                      <MenuItem value="under_construction">
+                        Đang xây dựng
+                      </MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
               </Grid>
             </Grid>
-          </Box>
+          </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCampusDialogClose}>Hủy</Button>
+          <Button onClick={handleCampusDialogClose} disabled={isSubmitting}>
+            Hủy
+          </Button>
           <Button
             onClick={handleCampusFormSubmit}
             variant="contained"
             color="primary"
-            disabled={!campusFormData.code || !campusFormData.name}
+            disabled={
+              !campusFormData.code ||
+              !campusFormData.name ||
+              !campusFormData.address ||
+              isSubmitting
+            }
+            startIcon={
+              isSubmitting ? (
+                <CircularProgress size={20} color="inherit" />
+              ) : null
+            }
           >
-            {campusDialogMode === "add" ? "Thêm mới" : "Cập nhật"}
+            {isSubmitting
+              ? "Đang xử lý..."
+              : campusDialogMode === "add"
+              ? "Thêm mới"
+              : "Cập nhật"}
           </Button>
         </DialogActions>
       </Dialog>
@@ -1554,144 +1962,224 @@ const FacilitiesPage = () => {
       <Dialog
         open={buildingDialogOpen}
         onClose={handleCloseBuildingDialog}
-        maxWidth="sm"
+        maxWidth="md"
         fullWidth
       >
         <DialogTitle>
           {buildingDialogMode === "add" ? "Thêm tòa nhà mới" : "Sửa tòa nhà"}
         </DialogTitle>
         <DialogContent>
-          <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid item xs={12}>
-              <TextField
-                name="name"
-                label="Tên tòa nhà"
-                fullWidth
-                required
-                value={buildingFormData.name}
-                onChange={handleBuildingFormChange}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                name="code"
-                label="Mã tòa nhà"
-                fullWidth
-                required
-                value={buildingFormData.code}
-                onChange={handleBuildingFormChange}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <FormControl fullWidth required>
-                <InputLabel>Chọn cơ sở</InputLabel>
-                <Select
-                  name="campus_id"
-                  value={buildingFormData.campus_id}
-                  onChange={handleBuildingFormChange}
-                  label="Chọn cơ sở"
+          <Grid container spacing={3} sx={{ mt: 1 }}>
+            {/* Cột cho ảnh */}
+            <Grid item xs={12} md={4}>
+              <Box display="flex" flexDirection="column" alignItems="center">
+                <Avatar
+                  src={buildingImagePreview || buildingFormData.image_url}
+                  alt={buildingFormData.name || "Building Image"}
+                  variant="rounded"
+                  sx={{
+                    width: 180,
+                    height: 180,
+                    mb: 2,
+                    border: "1px solid lightgray",
+                  }}
                 >
-                  {localCampusList.map((campus) => (
-                    <MenuItem key={campus._id} value={campus._id}>
-                      {campus.name} ({campus.code})
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                name="floors_count"
-                label="Số tầng"
-                type="number"
-                fullWidth
-                required
-                value={buildingFormData.floors_count}
-                onChange={handleBuildingFormChange}
-                InputProps={{ inputProps: { min: 1 } }}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                name="year_built"
-                label="Năm xây dựng"
-                type="number"
-                fullWidth
-                required
-                value={buildingFormData.year_built}
-                onChange={handleBuildingFormChange}
-                InputProps={{
-                  inputProps: { min: 1900, max: new Date().getFullYear() },
-                }}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <FormControl fullWidth>
-                <InputLabel>Trạng thái</InputLabel>
-                <Select
-                  name="status"
-                  value={buildingFormData.status}
-                  onChange={handleBuildingFormChange}
-                  label="Trạng thái"
+                  {!buildingImagePreview && !buildingFormData.image_url && (
+                    <Domain sx={{ fontSize: 60 }} />
+                  )}
+                </Avatar>
+                <Button
+                  variant="outlined"
+                  component="label"
+                  startIcon={<CloudUpload />}
+                  fullWidth
+                  size="small"
+                  disabled={isSubmitting}
                 >
-                  <MenuItem value="active">Hoạt động</MenuItem>
-                  <MenuItem value="maintenance">Bảo trì</MenuItem>
-                  <MenuItem value="inactive">Ngưng hoạt động</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12}>
-              <Typography variant="subtitle2" gutterBottom>
-                Tiện ích
-              </Typography>
-              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
-                {buildingFacilities.map((facility) => (
-                  <Chip
-                    key={facility.id}
-                    label={facility.label}
-                    color={
-                      buildingFormData.facilities.includes(facility.id)
-                        ? "primary"
-                        : "default"
-                    }
-                    onClick={() => {
-                      const newFacilities =
-                        buildingFormData.facilities.includes(facility.id)
-                          ? buildingFormData.facilities.filter(
-                              (id) => id !== facility.id
-                            )
-                          : [...buildingFormData.facilities, facility.id];
-
-                      setBuildingFormData({
-                        ...buildingFormData,
-                        facilities: newFacilities,
-                      });
-                    }}
-                    sx={{ m: 0.5, cursor: "pointer" }}
+                  Tải ảnh lên
+                  <input
+                    type="file"
+                    hidden
+                    accept="image/*"
+                    onChange={handleBuildingImageChange}
                   />
-                ))}
+                </Button>
+                {(buildingImagePreview || buildingFormData.image_url) &&
+                  buildingDialogMode === "edit" && (
+                    <Button
+                      variant="text"
+                      color="error"
+                      startIcon={<DeleteForeverIcon />}
+                      onClick={handleRemoveBuildingImage}
+                      size="small"
+                      sx={{ mt: 1 }}
+                      disabled={isSubmitting}
+                    >
+                      Xóa ảnh hiện tại
+                    </Button>
+                  )}
+                {buildingFileError && (
+                  <Typography
+                    color="error"
+                    variant="caption"
+                    sx={{ mt: 1, textAlign: "center" }}
+                  >
+                    {buildingFileError}
+                  </Typography>
+                )}
               </Box>
             </Grid>
-            <Grid item xs={12}>
-              <TextField
-                name="image_url"
-                label="URL hình ảnh"
-                fullWidth
-                value={buildingFormData.image_url || ""}
-                onChange={handleBuildingFormChange}
-              />
+
+            {/* Cột cho thông tin */}
+            <Grid item xs={12} md={8}>
+              <Grid container spacing={2}>
+                <Grid item xs={12}>
+                  <TextField
+                    name="name"
+                    label="Tên tòa nhà"
+                    fullWidth
+                    required
+                    value={buildingFormData.name}
+                    onChange={handleBuildingFormChange}
+                    disabled={isSubmitting}
+                  />
+                </Grid>
+                <Grid item xs={12}>
+                  <TextField
+                    name="code"
+                    label="Mã tòa nhà"
+                    fullWidth
+                    required
+                    value={buildingFormData.code}
+                    onChange={handleBuildingFormChange}
+                    disabled={isSubmitting}
+                  />
+                </Grid>
+                <Grid item xs={12}>
+                  <FormControl fullWidth required disabled={isSubmitting}>
+                    <InputLabel>Chọn cơ sở</InputLabel>
+                    <Select
+                      name="campus_id"
+                      value={buildingFormData.campus_id}
+                      onChange={handleBuildingFormChange}
+                      label="Chọn cơ sở"
+                    >
+                      {localCampusList.map((campus) => (
+                        <MenuItem key={campus._id} value={campus._id}>
+                          {campus.name} ({campus.code})
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    name="floors_count"
+                    label="Số tầng"
+                    type="number"
+                    fullWidth
+                    required
+                    value={buildingFormData.floors_count}
+                    onChange={handleBuildingFormChange}
+                    InputProps={{ inputProps: { min: 1 } }}
+                    disabled={isSubmitting}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    name="year_built"
+                    label="Năm xây dựng"
+                    type="number"
+                    fullWidth
+                    required
+                    value={buildingFormData.year_built}
+                    onChange={handleBuildingFormChange}
+                    InputProps={{
+                      inputProps: { min: 1900, max: new Date().getFullYear() },
+                    }}
+                    disabled={isSubmitting}
+                  />
+                </Grid>
+                <Grid item xs={12}>
+                  <FormControl fullWidth>
+                    <InputLabel>Trạng thái</InputLabel>
+                    <Select
+                      name="status"
+                      value={buildingFormData.status}
+                      onChange={handleBuildingFormChange}
+                      label="Trạng thái"
+                    >
+                      <MenuItem value="active">Hoạt động</MenuItem>
+                      <MenuItem value="maintenance">Bảo trì</MenuItem>
+                      <MenuItem value="inactive">Ngưng hoạt động</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12}>
+                  <Typography variant="subtitle2" gutterBottom sx={{ mt: 1 }}>
+                    Chọn Tiện ích (Chips)
+                  </Typography>
+                  <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+                    {buildingFacilities.map((facility) => (
+                      <Chip
+                        key={facility.id}
+                        label={facility.label}
+                        color={
+                          buildingFormData.facilities.includes(facility.id)
+                            ? "primary"
+                            : "default"
+                        }
+                        onClick={() => {
+                          const currentFacilities =
+                            buildingFormData.facilities || [];
+                          const newFacilities = currentFacilities.includes(
+                            facility.id
+                          )
+                            ? currentFacilities.filter(
+                                (id) => id !== facility.id
+                              )
+                            : [...currentFacilities, facility.id];
+
+                          setBuildingFormData({
+                            ...buildingFormData,
+                            facilities: newFacilities,
+                          });
+                        }}
+                        sx={{ cursor: "pointer" }}
+                        disabled={isSubmitting}
+                      />
+                    ))}
+                  </Box>
+                </Grid>
+              </Grid>
             </Grid>
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setBuildingDialogOpen(false)}>Hủy</Button>
+          <Button onClick={handleCloseBuildingDialog} disabled={isSubmitting}>
+            Hủy
+          </Button>
           <Button
             onClick={handleBuildingFormSubmit}
             variant="contained"
             color="primary"
-            disabled={!buildingFormData.name || !buildingFormData.code}
+            disabled={
+              !buildingFormData.name ||
+              !buildingFormData.code ||
+              !buildingFormData.campus_id ||
+              isSubmitting
+            }
+            startIcon={
+              isSubmitting ? (
+                <CircularProgress size={20} color="inherit" />
+              ) : null
+            }
           >
-            {buildingDialogMode === "add" ? "Tạo mới" : "Cập nhật"}
+            {isSubmitting
+              ? "Đang xử lý..."
+              : buildingDialogMode === "add"
+              ? "Tạo mới"
+              : "Cập nhật"}
           </Button>
         </DialogActions>
       </Dialog>
@@ -1704,136 +2192,299 @@ const FacilitiesPage = () => {
       <Dialog
         open={roomDialogOpen}
         onClose={handleCloseRoomDialog}
-        maxWidth="sm"
+        maxWidth="md"
         fullWidth
       >
         <DialogTitle>
           {roomDialogMode === "add" ? "Thêm phòng học mới" : "Sửa phòng học"}
         </DialogTitle>
         <DialogContent>
-          <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid item xs={12}>
-              <TextField
-                name="room_number"
-                label="Số phòng"
-                fullWidth
-                required
-                value={roomFormData.room_number}
-                onChange={handleRoomFormChange}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                name="floor"
-                label="Tầng"
-                type="number"
-                fullWidth
-                required
-                value={roomFormData.floor}
-                onChange={handleRoomFormChange}
-                InputProps={{
-                  inputProps: {
-                    min: 1,
-                    max: selectedBuilding?.floors_count || 100,
-                  },
-                }}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                name="capacity"
-                label="Sức chứa"
-                type="number"
-                fullWidth
-                required
-                value={roomFormData.capacity}
-                onChange={handleRoomFormChange}
-                InputProps={{ inputProps: { min: 0 } }}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <FormControl fullWidth required>
-                <InputLabel>Loại phòng</InputLabel>
-                <Select
-                  name="room_type"
-                  value={roomFormData.room_type}
-                  onChange={handleRoomFormChange}
-                  label="Loại phòng"
+          <Grid container spacing={3} sx={{ mt: 1 }}>
+            {/* Cột cho ảnh */}
+            <Grid item xs={12} md={4}>
+              <Box display="flex" flexDirection="column" alignItems="center">
+                <Avatar
+                  src={roomImagePreview || roomFormData.image_url}
+                  alt={roomFormData.room_number || "Room Image"}
+                  variant="rounded"
+                  sx={{
+                    width: 180,
+                    height: 180,
+                    mb: 2,
+                    border: "1px solid lightgray",
+                  }}
                 >
-                  {roomTypes.map((type) => (
-                    <MenuItem key={type.value} value={type.value}>
-                      {type.label}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12}>
-              <FormControl fullWidth>
-                <InputLabel>Trạng thái</InputLabel>
-                <Select
-                  name="status"
-                  value={roomFormData.status}
-                  onChange={handleRoomFormChange}
-                  label="Trạng thái"
+                  {!roomImagePreview && !roomFormData.image_url && (
+                    <Room sx={{ fontSize: 60 }} />
+                  )}
+                </Avatar>
+                <Button
+                  variant="outlined"
+                  component="label"
+                  startIcon={<CloudUpload />}
+                  fullWidth
+                  size="small"
+                  disabled={isSubmitting}
                 >
-                  {roomStatuses.map((status) => (
-                    <MenuItem key={status.value} value={status.value}>
-                      {status.label}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12}>
-              <Typography variant="subtitle2" gutterBottom>
-                Tiện ích
-              </Typography>
-              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
-                {availableEquipment.map((facility) => (
-                  <Chip
-                    key={facility.id}
-                    label={facility.label}
-                    color={
-                      roomFormData.equipment.includes(facility.id)
-                        ? "primary"
-                        : "default"
-                    }
-                    onClick={() => {
-                      const newEquipment = roomFormData.equipment.includes(
-                        facility.id
-                      )
-                        ? roomFormData.equipment.filter(
-                            (id) => id !== facility.id
-                          )
-                        : [...roomFormData.equipment, facility.id];
-
-                      setRoomFormData({
-                        ...roomFormData,
-                        equipment: newEquipment,
-                      });
-                    }}
-                    sx={{ m: 0.5, cursor: "pointer" }}
+                  Tải ảnh lên
+                  <input
+                    type="file"
+                    hidden
+                    accept="image/*"
+                    onChange={handleRoomImageChange}
                   />
-                ))}
+                </Button>
+                {/* Hiển thị lỗi file cho Room */}
+                {roomFileError && (
+                  <Typography
+                    color="error"
+                    variant="caption"
+                    sx={{ mt: 1, textAlign: "center" }}
+                  >
+                    {roomFileError}
+                  </Typography>
+                )}
+                {(roomImagePreview || roomFormData.image_url) &&
+                  roomDialogMode === "edit" && (
+                    <Button
+                      variant="text"
+                      color="error"
+                      startIcon={<DeleteForeverIcon />}
+                      onClick={handleRemoveRoomImage}
+                      size="small"
+                      sx={{ mt: 1 }}
+                      disabled={isSubmitting}
+                    >
+                      Xóa ảnh hiện tại
+                    </Button>
+                  )}
               </Box>
+            </Grid>
+
+            {/* Cột cho thông tin */}
+            <Grid item xs={12} md={8}>
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    name="room_number"
+                    label="Số phòng"
+                    fullWidth
+                    required
+                    value={roomFormData.room_number}
+                    onChange={handleRoomFormChange}
+                    disabled={isSubmitting}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth required disabled={isSubmitting}>
+                    <InputLabel>Tòa nhà</InputLabel>
+                    <Select
+                      name="building_id"
+                      value={roomFormData.building_id}
+                      onChange={handleRoomFormChange}
+                      label="Tòa nhà"
+                    >
+                      {(selectedCampus
+                        ? buildings.filter(
+                            (b) =>
+                              b.campus_id?._id === selectedCampus._id ||
+                              b.campus_id === selectedCampus._id
+                          )
+                        : buildings
+                      ).map((building) => (
+                        <MenuItem key={building._id} value={building._id}>
+                          {building.name} ({building.code})
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    name="floor"
+                    label="Tầng"
+                    type="number"
+                    fullWidth
+                    required
+                    value={roomFormData.floor}
+                    onChange={handleRoomFormChange}
+                    InputProps={{
+                      inputProps: {
+                        min: 1,
+                        max:
+                          buildings.find(
+                            (b) => b._id === roomFormData.building_id
+                          )?.floors_count || 100,
+                      },
+                    }}
+                    disabled={isSubmitting}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    name="capacity"
+                    label="Sức chứa"
+                    type="number"
+                    fullWidth
+                    required
+                    value={roomFormData.capacity}
+                    onChange={handleRoomFormChange}
+                    InputProps={{ inputProps: { min: 0 } }}
+                    disabled={isSubmitting}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth required disabled={isSubmitting}>
+                    <InputLabel>Loại phòng</InputLabel>
+                    <Select
+                      name="room_type"
+                      value={roomFormData.room_type}
+                      onChange={handleRoomFormChange}
+                      label="Loại phòng"
+                    >
+                      {roomTypes.map((type) => (
+                        <MenuItem key={type.value} value={type.value}>
+                          {type.label}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth disabled={isSubmitting}>
+                    <InputLabel>Trạng thái</InputLabel>
+                    <Select
+                      name="status"
+                      value={roomFormData.status}
+                      onChange={handleRoomFormChange}
+                      label="Trạng thái"
+                    >
+                      {roomStatuses.map((status) => (
+                        <MenuItem key={status.value} value={status.value}>
+                          {status.label}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    name="area"
+                    label="Diện tích (m²)"
+                    type="number"
+                    fullWidth
+                    value={roomFormData.area || ""}
+                    onChange={handleRoomFormChange}
+                    InputProps={{ inputProps: { min: 0 } }}
+                    disabled={isSubmitting}
+                  />
+                </Grid>
+                <Grid item xs={12}>
+                  <Typography variant="subtitle2" gutterBottom sx={{ mt: 1 }}>
+                    Tiện ích phòng
+                  </Typography>
+                  <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+                    {availableEquipment.map((facility) => (
+                      <Chip
+                        key={facility.id}
+                        label={facility.label}
+                        color={
+                          (roomFormData.equipment || []).includes(facility.id)
+                            ? "primary"
+                            : "default"
+                        }
+                        onClick={() => {
+                          const currentEquipment = roomFormData.equipment || [];
+                          const newEquipment = currentEquipment.includes(
+                            facility.id
+                          )
+                            ? currentEquipment.filter(
+                                (id) => id !== facility.id
+                              )
+                            : [...currentEquipment, facility.id];
+                          setRoomFormData({
+                            ...roomFormData,
+                            equipment: newEquipment,
+                          });
+                        }}
+                        sx={{ cursor: "pointer" }}
+                        disabled={isSubmitting}
+                      />
+                    ))}
+                  </Box>
+                </Grid>
+              </Grid>
             </Grid>
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setRoomDialogOpen(false)}>Hủy</Button>
+          <Button onClick={handleCloseRoomDialog} disabled={isSubmitting}>
+            Hủy
+          </Button>
           <Button
             onClick={handleRoomFormSubmit}
             variant="contained"
             color="primary"
-            disabled={!roomFormData.room_number}
+            disabled={
+              !roomFormData.room_number ||
+              !roomFormData.building_id ||
+              isSubmitting
+            }
+            startIcon={
+              isSubmitting ? (
+                <CircularProgress size={20} color="inherit" />
+              ) : null
+            }
           >
-            {roomDialogMode === "add" ? "Tạo mới" : "Cập nhật"}
+            {isSubmitting
+              ? "Đang xử lý..."
+              : roomDialogMode === "add"
+              ? "Tạo mới"
+              : "Cập nhật"}
           </Button>
         </DialogActions>
       </Dialog>
     );
   };
+
+  // Dialog xem ảnh
+  const renderImagePreviewDialog = () => (
+    <Dialog
+      open={imagePreviewOpen}
+      onClose={handleCloseImagePreview}
+      maxWidth="md"
+    >
+      <DialogTitle>
+        Xem ảnh: {currentImageAlt}
+        <IconButton
+          aria-label="close"
+          onClick={handleCloseImagePreview}
+          sx={{
+            position: "absolute",
+            right: 8,
+            top: 8,
+            color: (theme) => theme.palette.grey[500],
+          }}
+        >
+          <Add sx={{ transform: "rotate(45deg)" }} />
+        </IconButton>
+      </DialogTitle>
+      <DialogContent dividers>
+        {currentImageUrl ? (
+          <img
+            src={currentImageUrl}
+            alt={currentImageAlt}
+            style={{ width: "100%", height: "auto", display: "block" }}
+          />
+        ) : (
+          <Typography>Không có ảnh để hiển thị.</Typography>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={handleCloseImagePreview}>Đóng</Button>
+      </DialogActions>
+    </Dialog>
+  );
 
   return (
     <Container maxWidth="xl">
@@ -1856,6 +2507,7 @@ const FacilitiesPage = () => {
       {renderBuildingDialog()}
       {renderRoomDialog()}
       {renderDeleteConfirmDialog()}
+      {renderImagePreviewDialog()}
     </Container>
   );
 };
